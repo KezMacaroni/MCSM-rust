@@ -110,10 +110,15 @@ impl Vfs {
     }
 }
 
+/// `game_dir` from `mcsm.toml` in the working directory, or else next to the running exe
+/// (shortcuts may start it elsewhere).
 fn config_game_dir() -> Option<PathBuf> {
-    let text = std::fs::read_to_string(CONFIG_FILE).ok()?;
-    text.lines().find_map(|line| {
-        let (k, v) = line.split_once('=')?;
-        (k.trim() == "game_dir").then(|| PathBuf::from(v.trim().trim_matches(['"', '\''])))
+    let beside_exe = std::env::current_exe().ok().and_then(|e| Some(e.parent()?.join(CONFIG_FILE)));
+    [Some(PathBuf::from(CONFIG_FILE)), beside_exe].into_iter().flatten().find_map(|path| {
+        let text = std::fs::read_to_string(path).ok()?;
+        text.lines().filter(|l| !l.trim_start().starts_with('#')).find_map(|line| {
+            let (k, v) = line.split_once('=')?;
+            (k.trim() == "game_dir").then(|| PathBuf::from(v.trim().trim_matches(['"', '\''])))
+        })
     })
 }

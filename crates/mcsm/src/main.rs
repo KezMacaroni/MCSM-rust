@@ -46,7 +46,13 @@ fn main() -> AppExit {
             app.insert_resource(data::GameData::new(vfs));
         }
         Err(e) => {
-            app.insert_resource(BootError(format!("Could not open the game install:\n{e}")));
+            app.insert_resource(BootError(format!(
+                "Could not open your Minecraft: Story Mode install.\n\n{e}\n\n\
+                 Open mcsm.toml (next to mcsm.exe) in Notepad and set game_dir to the folder\n\
+                 that contains MinecraftStoryMode.exe, for example:\n\n    \
+                 game_dir = 'C:\\Games\\Minecraft Story Mode'\n\n\
+                 Then start mcsm.exe again."
+            )));
         }
     }
 
