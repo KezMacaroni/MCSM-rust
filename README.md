@@ -6,6 +6,24 @@ A Rust + [Bevy](https://bevyengine.org) rewrite of the Telltale Tool engine as u
 This repository contains no game data, no keys and no decompiled code. At startup it reads your
 `MinecraftStoryMode.exe` (for the archive key and cipher tables) and your `Archives/*.ttarch2`.
 
+## Requirements
+
+To play (the release download):
+
+- **Minecraft: Story Mode, Season 1, PC** (the Telltale release), installed. Developed and tested
+  on build **2016.5.17.1283** with all eight episodes (1-5 and the Adventure Pass, 6-8). Other
+  copies of the final Season 1 PC build should work; Season 2 and console or mobile versions
+  will not.
+- **Windows 10 or 11, 64-bit.**
+- **A graphics card with Vulkan or DirectX 12** (most GPUs from about 2015 on, including
+  integrated laptop graphics).
+
+Nothing else: no installer, no extra runtimes, no internet connection. Your game's own files,
+saves and settings are only read, never changed.
+
+To build from source: Rust 1.95 or newer and the Visual Studio Build Tools ("Desktop development
+with C++").
+
 ## Status
 
 | Milestone | State |
@@ -24,7 +42,9 @@ This repository contains no game data, no keys and no decompiled code. At startu
 | Character select (first Play): six looks, live texture / gender swap, look carried to the episode diorama | done (choice kept for the session only) |
 | Episode select (Play): diorama per episode, sliding between episodes, title / status / arrows | done (starting an episode is not implemented) |
 | Settings menus (Audio/Video, Gameplay, Graphics; toggles, sliders, Apply/Restore popup), saved to `%APPDATA%\mcsm-rs\settings.txt` | done (volumes, full screen, resolution, anti-aliasing and brightness take effect) |
-| Menu: held props (agents attached to bones), character lighting, news feed, FMOD event logic | next |
+| Telltale lighting on unbaked surfaces (per lighting group, from the game's shaders) and scene FX (tone curve, vignette, fog) | done |
+| Fades between menu backgrounds, the game's cursor, background preloading of menu scenes | done |
+| Menu: held props (agents attached to bones), bloom, depth of field, brush post-effect, news feed, FMOD event logic | next |
 | Lua runtime + engine API, dialogue | planned |
 
 ## Running
