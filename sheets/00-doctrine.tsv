@@ -1,0 +1,12 @@
+# sheet: doctrine
+# version: 1
+id	key	value	notes
+d1	project	mcsm-rs	Rust + Bevy rewrite of Telltale Tool for Minecraft: Story Mode PC
+d2	mode	B	binary-only target; evidence workspace kept outside this repo
+d3	doctrine_version	1.0	THE-SPREADSHEET-METHOD.json
+d4	emitter_version	0	no sheet emitter yet (see decisions dec003)
+d5	rust	1.98.1	
+d6	bevy	0.19.1	
+d7	license	GPL-3.0-or-later	see CREDITS.md
+d8	legal	no game data in repo	whitelist .gitignore; key and tables read from user exe at runtime
+d9	target_build	2016.5.17.1283	PC x86, verified 182/182 archives

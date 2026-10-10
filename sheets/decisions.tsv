@@ -1,0 +1,20 @@
+# sheet: decisions
+# version: 1
+id	decision	rationale	alternatives	reversibility	ts
+dec001	GPL-3.0-or-later	allows porting ttarchext (GPL-2.0+) and TTG Tools (GPL-3.0); keeps derivatives open	MIT/Apache clean-room	hard	2026-10-07
+dec002	read Blowfish tables + key from the user exe at runtime	nothing game-derived in repo; exe already holds the v7-modified S-box	embed tables/key	easy	2026-10-07
+dec003	no sheet emitter yet; sheets track plan/decisions/kernel only	no row-shaped data until formats are decoded	build sheetty first	easy	2026-10-07
+dec004	first-match archive lookup until resdesc priorities decoded	unblocks asset loading now	wait for m04	easy	2026-10-07
+dec005	Telltale is right-handed; cameras look down local +Z	title quad U grows with +X while the UI camera sits at z=+41 half-turned about Y	left-handed with Z mirror (tried; logo would read mirrored)	easy	2026-10-07
+dec006	camera Field of View = horizontal angle of a 4:3 frame (fixed vertical angle)	menu legend at y=-4.2 is off-screen under a 16:9-horizontal reading, visible under 4:3; game ships widescreen aspectRatio chores	vertical; horizontal at actual aspect (tried; legend off-screen)	easy	2026-10-07
+dec007	PropertySet decoding stops at the first unknown value type per set (block end skips the rest)	values carry no per-value size; 200/200 scenes and 6334/6334 props still decode	fail the file	easy	2026-10-07
+dec008	dialog labels resolved by object-id link (direct text nodes only) until a real Dlg parser exists	resolves 8/9 menu labels; conditionals (Episodes) are skipped with a warning, never guessed	byte-scan BFS (tried; picked wrong text)	easy	2026-10-07
+dec009	transition fills (*_fillForeground) start hidden	they are faded out by show chores, which are not implemented yet	draw opaque black	easy	2026-10-07
+dec010	key-art chore loops	the script plays it once (41 s); looping keeps the requested moving background	hold last frame	easy	2026-10-07
+dec011	unbaked surfaces lit per vertex from their lighting-group lights (linear min/max falloff)	sky dome base texture is grey; its blue comes from group lights; exact engine light model unknown	unlit (white sky)	easy	2026-10-07
+dec012	transform key tangents: stepped / linear / smoothstep for smooth and flat	close to the engine curves without decoding them	all linear	easy	2026-10-07
+dec013	menu music: loop the Ivor_090_16BARS_ABCMenuMix stream from Common.bank	event mus_ivorLight_MainMenu2 names it; FMOD event timelines (sections, alternating _B mix) not decoded	load the user fmodstudio.dll (32-bit; cannot load into 64-bit process)	easy	2026-10-07
+dec014	key-art chore plays once and holds (supersedes dec010)	the script plays it once; looping replayed the 31 s montage of 2 s cuts, which read as erratic	loop	easy	2026-10-07
+dec015	submesh blend mode from material word 0x6c: 0 opaque, 1 alpha, 2-4 alpha test, 5 additive	survey of 3,045 menu submeshes by texture (glass/clouds=1, foliage=3, stars=5)	alpha-test everything (cut holes, broke glass/clouds)	easy	2026-10-07
+dec016	group (unbaked) lighting: type 2 ambient, type 1 (default) directional, others point with min/max fade; ambient terms x2, sum clamped	module_light.prop default type 1; Key light min=max=300 cannot be a point light; ambient x2 makes cloudsAmb (white x0.5) white; x2 on all lights washed the sky out (tried)	sum with falloff (black hills, black clouds, blown-out props)	easy	2026-10-07
+dec017	pixel-art textures: nearest magnification, linear min + mip filtering	nearest minification shimmered at distance	all nearest	easy	2026-10-07

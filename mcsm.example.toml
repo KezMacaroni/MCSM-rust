@@ -1,0 +1,3 @@
+# Copy to mcsm.toml (ignored by git) and point at your own install.
+# Either the game folder or MinecraftStoryMode.exe works.
+game_dir = "D:\stolry mlde"

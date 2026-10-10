@@ -1,0 +1,28 @@
+# sheet: kernel
+# version: 1
+id	kind	rust_module	status	tests	notes
+blowfish7	crypto	ttarch::blowfish	done	unit roundtrip + real archives	port of ttarchext v7 rounds
+exe_tables	io	ttarch::exe	done	real_install	pattern search, no offsets
+archive	format	ttarch::archive	done	real_install	
+install_vfs	io	ttarch::install	done	real_install	
+bevy_source	engine	mcsm::source	done	manual run	
+raw_loader	engine	mcsm::raw	stub	-	replaced per format
+cli	tool	mcsm-tools	done	manual run	
+symbol	format	ttmeta::symbol	done	unit	CRC-64/ECMA symbols
+metastream	format	ttmeta::stream	done	real_install	
+props	format	ttmeta::props	done	real_install	
+scene	format	ttmeta::scene	done	real_install	
+texture	format	ttmeta::texture	done	real_install	
+mesh	format	ttmeta::mesh	done	real_install	v18 static
+font	format	ttmeta::font	done	real_install	
+text	format	ttmeta::text	partial	manual	landb + direct dlog labels
+resdesc	io	ttarch::resdesc	done	unit + real_install	
+script	crypto	ttarch::script	done	real_install	
+game_data	engine	mcsm::data	done	manual run	
+convert	engine	mcsm::convert	done	manual run	
+stage	engine	mcsm::stage	done	manual run	
+text_render	engine	mcsm::text	done	manual run	
+menu	engine	mcsm::menu	done	manual run + screenshot	
+anim	format	ttmeta::anim	done	real_install	keyframed values
+chore	format	ttmeta::chore	done	real_install	
+chore_player	engine	mcsm::chore	done	screenshots over time	

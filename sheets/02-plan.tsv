@@ -1,0 +1,17 @@
+# sheet: plan
+# version: 1
+id	kind	crate	priority	status	notes
+m01_archives	milestone	ttarch	1	done	ECTT/ZCTT/NCTT + 3ATT/4ATT; Blowfish v7
+m02_bevy_source	milestone	mcsm	1	done	ttarch:// AssetReader + raw loader
+m03_lua_decrypt	milestone	ttarch	1	done	LEo scripts -> Lua 5.2 bytecode
+m04_resdesc	milestone	ttarch	2	done	archive priorities from _resdesc_50_*.lua
+m08_lua_vm	milestone	mcsm	2	todo	Lua 5.2 runtime + engine API surface
+m05_metastream	milestone	ttmeta	1	done	props/scene/texture/mesh/font/text; full-install sweep passes
+m06_textures	milestone	mcsm	2	done	BC1-5, BGRA8, ARGB4, A8, L8
+m07_meshes	milestone	mcsm	2	partial	static v18 meshes; skinning not yet
+m09_menu	milestone	mcsm	1	done	Milestone A main menu
+m10_dlg	milestone	ttmeta	1	todo	real Dlg parser (conditionals: Episodes label)
+m11_chores	milestone	mcsm	2	todo	chore playback for menu show/select animations
+m12_characters	milestone	mcsm	2	todo	skeletons + animation for key-art characters
+m13_anim_chore	milestone	ttmeta	1	done	keyframed anm + chore parse; full-install sweep passes
+m14_chore_playback	milestone	mcsm	1	done	absolute/visibility/scale tracks, additive anm, nested chores

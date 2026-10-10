@@ -1,0 +1,31 @@
+# WHITELIST. Everything is ignored unless re-included below.
+# Game assets, extracted files, decrypted scripts and decompiled code must never enter this repo:
+# they are read from the user's own install at runtime. To add a new kind of file, add it here on purpose.
+/*
+!/.gitignore
+!/LICENSE
+!/README.md
+!/CREDITS.md
+!/Cargo.toml
+!/Cargo.lock
+!/rust-toolchain.toml
+!/mcsm.example.toml
+
+!/sheets/
+/sheets/*
+!/sheets/*.tsv
+
+!/crates/
+/crates/*/**
+!/crates/*/
+!/crates/*/Cargo.toml
+!/crates/*/src/
+!/crates/*/src/**/
+!/crates/*/src/**/*.rs
+!/crates/*/src/**/*.wgsl
+!/crates/*/examples/
+!/crates/*/examples/**/
+!/crates/*/examples/**/*.rs
+!/crates/*/tests/
+!/crates/*/tests/**/
+!/crates/*/tests/**/*.rs

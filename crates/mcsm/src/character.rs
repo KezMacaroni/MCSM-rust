@@ -1,0 +1,276 @@
+//! Skinned characters: a skeleton of joint entities, the agent's visible meshes skinned to it,
+//! and skeletal animation (the prop's idle, or whatever a chore plays on the agent).
+//!
+//! A character agent's props give "Skeleton File", "D3D Mesh List" (every mesh variant: hair,
+//! hats, masks, mouth shapes, ...) and per mesh a "Mesh <name> - Visible" bool choosing the
+//! variants shown. "Walk Animation - Idle" names the idle (an animation, or a chore whose
+//! animation resource is the idle).
+
+use crate::data::GameData;
+use bevy::prelude::*;
+use std::collections::HashMap;
+use std::sync::Arc;
+use ttmeta::anim::SkeletonKeys;
+use ttmeta::props::Value;
+use ttmeta::{Animation, Skeleton, Symbol};
+
+/// Joints of a spawned skeleton, for skinning.
+pub struct Skin {
+    pub joints: HashMap<Symbol, Entity>,
+    /// Bind pose of each joint in the agent's space.
+    pub bind: HashMap<Symbol, Mat4>,
+    pub root: Entity,
+}
+
+#[derive(Clone, Copy)]
+struct Joint {
+    entity: Entity,
+    rest: Transform,
+    /// Length of the rest offset from the parent: animation positions are directions scaled
+    /// by it (see `ttmeta::anim::SkeletonKeys`).
+    length: f32,
+}
+
+enum Idle {
+    Anim(Arc<Animation>),
+    /// A looping chore of layered animations (base idle, weight shifts, gestures).
+    Chore(crate::chore::ChorePlayer),
+}
+
+impl Idle {
+    fn length(&self) -> f32 {
+        match self {
+            Idle::Anim(a) => a.length,
+            Idle::Chore(c) => c.chore.length,
+        }
+    }
+}
+
+/// The prop's "Walk Animation - Forward", played whenever the agent moves (the engine's walk
+/// animator): a looping cycle advanced by distance travelled.
+struct Walk {
+    anim: Arc<Animation>,
+    /// Ground speed of the cycle, from its `relativeNode` (root motion) track.
+    speed: f32,
+    phase: f32,
+    weight: f32,
+    last: Option<Vec3>,
+}
+
+#[derive(Component)]
+pub struct Rig {
+    joints: HashMap<Symbol, Joint>,
+    idle: Option<Idle>,
+    walk: Option<Walk>,
+    time: f32,
+}
+
+/// An idle loop a finished chore left the agent in (replaces the prop's idle).
+#[derive(Component)]
+pub struct IdleOverride(pub Arc<Animation>);
+
+/// The final pose of a finished chore, held by characters that have no idle.
+#[derive(Component)]
+pub struct HeldPose(pub Vec<(Arc<Animation>, f32, f32, bool)>);
+
+/// Skeletal animations a chore plays on this agent this frame: (animation, time, weight,
+/// additive). Replaces the idle while non-empty; consumed every frame.
+#[derive(Component, Default)]
+pub struct SkeletalOverride(pub Vec<(Arc<Animation>, f32, f32, bool)>);
+
+/// Chores and props switch the meshes of a "D3D Mesh List" agent on and off by name
+/// (`Mesh <mesh> - Visible`): mouth shapes, outfit variants, the blocks of a block-building
+/// structure. Each mesh gets its own container entity, keyed by that property's symbol.
+#[derive(Component, Default)]
+pub struct MeshToggles(pub HashMap<Symbol, Entity>);
+
+/// One container entity per listed mesh (hidden when its `Mesh <name> - Visible` is false),
+/// registered in the agent's [`MeshToggles`]. Returns (container, mesh) pairs.
+pub fn mesh_list(ctx: &mut crate::stage::Ctx, entity: Entity, props: &ttmeta::PropertySet, meshes: &[Symbol]) -> Vec<(Entity, Symbol)> {
+    let mut toggles = HashMap::new();
+    let mut out = Vec::new();
+    for &m in meshes {
+        let Some(stem) = mesh_stem(ctx.data, m) else { continue };
+        let key = format!("Mesh {stem} - Visible");
+        let visible = ctx.props.bool(ctx.data, props, &key) != Some(false);
+        let container = ctx
+            .commands
+            .spawn((Transform::IDENTITY, if visible { Visibility::Inherited } else { Visibility::Hidden }, ChildOf(entity)))
+            .id();
+        toggles.insert(Symbol::of(&key), container);
+        out.push((container, m));
+    }
+    ctx.commands.entity(entity).insert(MeshToggles(toggles));
+    out
+}
+
+fn mesh_stem(data: &GameData, s: Symbol) -> Option<String> {
+    let name = data.name_of(s)?;
+    Some(name.strip_suffix(".d3dmesh").unwrap_or(name).to_owned())
+}
+
+/// The idle named by "Walk Animation - Idle".
+fn idle_animation(ctx: &mut crate::stage::Ctx, props: &ttmeta::PropertySet) -> Option<Idle> {
+    let Some(Value::AnimOrChore(anim, chore)) = ctx.props.get(ctx.data, props, "Walk Animation - Idle") else { return None };
+    if anim != Symbol::NONE {
+        let a = ctx.data.read_symbol(anim).and_then(|b| Animation::parse(&b).ok()).filter(|a| a.skeleton().is_some())?;
+        return Some(Idle::Anim(Arc::new(a)));
+    }
+    let chore = ttmeta::Chore::parse(&ctx.data.read_symbol(chore)?).ok()?;
+    Some(Idle::Chore(crate::chore::ChorePlayer::new(ctx.data, chore, Arc::new(HashMap::new()), true)))
+}
+
+fn walk_animation(ctx: &mut crate::stage::Ctx, props: &ttmeta::PropertySet) -> Option<Walk> {
+    let Some(Value::AnimOrChore(anim, _)) = ctx.props.get(ctx.data, props, "Walk Animation - Forward") else { return None };
+    let anim = ctx.data.read_symbol(anim).and_then(|b| Animation::parse(&b).ok()).filter(|a| a.skeleton().is_some())?;
+    let stride = match anim.value("relativeNode") {
+        Some(ttmeta::anim::Track::Transform(k)) if k.len() >= 2 => {
+            let (a, b) = (k.first().unwrap().value.pos, k.last().unwrap().value.pos);
+            Vec2::new(b[0] - a[0], b[2] - a[2]).length()
+        }
+        _ => 0.0,
+    };
+    let speed = if stride > 0.01 && anim.length > 0.0 { stride / anim.length } else { 1.2 };
+    Some(Walk { anim: Arc::new(anim), speed, phase: 0.0, weight: 0.0, last: None })
+}
+
+/// Spawn the skeleton and meshes of a character agent. Returns false if `props` do not
+/// describe one.
+pub fn spawn(
+    ctx: &mut crate::stage::Ctx,
+    entity: Entity,
+    agent_name: &str,
+    props: &ttmeta::PropertySet,
+    mut spawn_mesh: impl FnMut(&mut crate::stage::Ctx, Entity, Symbol, &Skin),
+) -> bool {
+    let Some(Value::Symbols(meshes)) = ctx.props.get(ctx.data, props, "D3D Mesh List") else { return false };
+    let Some(skl) = ctx.props.symbol(ctx.data, props, "Skeleton File") else { return false };
+    let skeleton = match ctx.data.read_symbol(skl).map(|b| Skeleton::parse(&b)) {
+        Some(Ok(s)) => s,
+        Some(Err(e)) => {
+            warn!("{agent_name}: skeleton: {e}");
+            return false;
+        }
+        None => {
+            warn!("{agent_name}: skeleton {} missing", ctx.data.name_of(skl).unwrap_or("?"));
+            return false;
+        }
+    };
+
+    let mut entities: Vec<Entity> = Vec::with_capacity(skeleton.bones.len());
+    let mut global: Vec<Mat4> = Vec::with_capacity(skeleton.bones.len());
+    let mut joints = HashMap::new();
+    let mut bind = HashMap::new();
+    for bone in &skeleton.bones {
+        let rest = Transform {
+            translation: crate::convert::position(bone.local_pos),
+            rotation: crate::convert::rotation(bone.local_rot),
+            scale: Vec3::ONE,
+        };
+        let parent = bone.parent.map_or(entity, |p| entities[p]);
+        let e = ctx.commands.spawn((rest, Visibility::Inherited, ChildOf(parent))).id();
+        let g = bone.parent.map_or(Mat4::IDENTITY, |p| global[p]) * rest.to_matrix();
+        entities.push(e);
+        global.push(g);
+        joints.insert(bone.name, Joint { entity: e, rest, length: Vec3::from_array(bone.local_pos).length() });
+        bind.insert(bone.name, g);
+    }
+    let Some(&root) = entities.first() else { return false };
+    let skin = Skin { joints: joints.iter().map(|(s, j)| (*s, j.entity)).collect(), bind, root };
+
+    for (container, m) in mesh_list(ctx, entity, props, &meshes) {
+        spawn_mesh(ctx, container, m, &skin);
+    }
+
+    let idle = idle_animation(ctx, props);
+    if idle.is_none() && ctx.props.get(ctx.data, props, "Walk Animation - Idle").is_some() {
+        warn!("{agent_name}: idle animation did not load");
+    }
+    // Desynchronize idles of identical characters.
+    let phase = (Symbol::of(agent_name).0 % 997) as f32 / 997.0 * idle.as_ref().map_or(0.0, Idle::length);
+    let walk = walk_animation(ctx, props);
+    ctx.commands.entity(entity).insert((Rig { joints, idle, walk, time: phase }, SkeletalOverride::default()));
+    true
+}
+
+fn sample(k: &SkeletonKeys, bone: usize, t: f32) -> Option<(Vec3, Quat)> {
+    let (i, j, f) = k.bracket(t)?;
+    let p = Vec3::from_array(k.positions[bone][i]).lerp(Vec3::from_array(k.positions[bone][j]), f);
+    let a = crate::convert::rotation(k.rotations[bone][i]);
+    let b = crate::convert::rotation(k.rotations[bone][j]);
+    Some((p, a.slerp(b, f).normalize()))
+}
+
+pub fn animate(
+    time: Res<Time>,
+    data: Option<Res<GameData>>,
+    mut rigs: Query<(&mut Rig, &mut SkeletalOverride, &GlobalTransform, Option<&IdleOverride>, Option<&HeldPose>)>,
+    mut transforms: Query<&mut Transform>,
+) {
+    let Some(data) = data else { return };
+    let dt = time.delta_secs().min(1.0 / 30.0);
+    for (mut rig, mut over, global, idle_override, held) in &mut rigs {
+        rig.time += dt;
+        let rig = &mut *rig;
+        let mut layers = std::mem::take(&mut over.0);
+        let chore_drives_body = layers.iter().any(|l| !l.3);
+        if !chore_drives_body {
+            // No chore drives the whole body: the idle plays underneath.
+            match &rig.idle {
+                _ if idle_override.is_some() => {
+                    let a = &idle_override.unwrap().0;
+                    layers.push((a.clone(), rig.time % a.length.max(0.01), 1.0, false));
+                }
+                Some(Idle::Anim(a)) => layers.push((a.clone(), rig.time % a.length.max(0.01), 1.0, false)),
+                Some(Idle::Chore(c)) => layers.extend(c.skeletal_layers(&data, rig.time % c.chore.length.max(0.01))),
+                None => {
+                    if let Some(h) = held {
+                        layers.extend(h.0.iter().cloned());
+                    }
+                }
+            }
+        }
+        // Moving agents walk: blend the walk cycle in by ground speed and advance it by distance,
+        // so feet plant instead of sliding. Jumps (teleports) do not count as movement.
+        if let Some(walk) = &mut rig.walk {
+            let pos = global.translation();
+            let moved = walk.last.map_or(0.0, |l| Vec2::new(pos.x - l.x, pos.z - l.z).length());
+            walk.last = Some(pos);
+            let speed = if dt > 0.0 { moved / dt } else { 0.0 };
+            // Faster than a run is a jump (block-building time-lapse hops, parking), not a walk;
+            // a chore playing a full-body animation also owns the legs.
+            let speed = if speed > 5.0 || chore_drives_body { 0.0 } else { speed };
+            let target = ((speed - 0.05) / 0.25).clamp(0.0, 1.0);
+            walk.weight += (target - walk.weight) * (dt * 8.0).min(1.0);
+            walk.phase = (walk.phase + dt * speed / walk.speed) % walk.anim.length.max(0.01);
+            if walk.weight > 0.01 {
+                layers.push((walk.anim.clone(), walk.phase, walk.weight, false));
+            }
+        }
+        // Base layers first, additive ones on top.
+        layers.sort_by_key(|l| l.3);
+        // Start from the rest pose; base layers blend over it by weight, additive ones compose.
+        let mut pose: HashMap<Symbol, (Vec3, Quat)> = rig.joints.iter().map(|(s, j)| (*s, (j.rest.translation, j.rest.rotation))).collect();
+        for (anim, t, w, additive) in &layers {
+            let Some(k) = anim.skeleton() else { continue };
+            for (b, name) in k.bones.iter().enumerate() {
+                let Some(joint) = rig.joints.get(name) else { continue };
+                let Some((dir, rot)) = sample(k, b, *t) else { continue };
+                let cur = pose.get_mut(name).unwrap();
+                if *additive {
+                    cur.1 = (cur.1 * Quat::IDENTITY.slerp(rot, *w)).normalize();
+                    cur.0 += dir * joint.length * *w;
+                } else {
+                    cur.0 = cur.0.lerp(dir * joint.length, *w);
+                    cur.1 = cur.1.slerp(rot, *w);
+                }
+            }
+        }
+        for (name, (p, r)) in pose {
+            if let Ok(mut tf) = transforms.get_mut(rig.joints[&name].entity) {
+                tf.translation = p;
+                tf.rotation = r;
+            }
+        }
+    }
+}

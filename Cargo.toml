@@ -1,0 +1,23 @@
+[workspace]
+resolver = "3"
+members = ["crates/ttarch", "crates/ttmeta", "crates/mcsm-tools", "crates/mcsm"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "local"
+rust-version = "1.95"
+
+[workspace.dependencies]
+ttarch = { path = "crates/ttarch" }
+ttmeta = { path = "crates/ttmeta" }
+flate2 = "1"
+thiserror = "2"
+bevy = "0.19.1"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

@@ -1,0 +1,11 @@
+[package]
+name = "ttarch"
+description = "Reader for Telltale Tool .ttarch2 archives, keyed from the user's own game executable"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+flate2.workspace = true
+thiserror.workspace = true
