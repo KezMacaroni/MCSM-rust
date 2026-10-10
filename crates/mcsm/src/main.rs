@@ -1,7 +1,8 @@
 //! Minecraft: Story Mode on Bevy, running from the user's own install.
 //!
 //!   cargo run -p mcsm --release -- [path to the game folder or MinecraftStoryMode.exe]
-//! or set MCSM_GAME_DIR, or put `game_dir = "..."` in ./mcsm.toml.
+//! or set MCSM_GAME_DIR, or put `game_dir = "..."` in ./mcsm.toml. Otherwise it asks for the
+//! game folder on startup and remembers it in %APPDATA%\mcsm-rs\mcsm.toml.
 //!
 //! Set MCSM_SCREENSHOT=<file.png> to save a screenshot after the menu has settled and exit
 //! (used for automated visual checks).
@@ -17,6 +18,7 @@ mod grade;
 mod menu;
 mod raw;
 mod settings;
+mod setup;
 mod source;
 mod stage;
 mod text;
@@ -35,7 +37,10 @@ fn main() -> AppExit {
     let mut app = App::new();
     app.init_resource::<data::Props>().init_resource::<data::AssetCache>().init_resource::<menu::MenuState>();
 
-    match Install::locate(explicit.as_deref()).and_then(|i| Ok((i.mount()?, i))) {
+    // No working install configured (and none given on the command line): ask for the folder.
+    let located = Install::locate(explicit.as_deref())
+        .or_else(|e| if explicit.is_none() { setup::ask_for_install().ok_or(e) } else { Err(e) });
+    match located.and_then(|i| Ok((i.mount()?, i))) {
         Ok((vfs, install)) => {
             info!("install {}: {} archives, {} files", install.root.display(), vfs.archives.len(), vfs.file_count());
             for e in &vfs.errors {
@@ -48,10 +53,8 @@ fn main() -> AppExit {
         Err(e) => {
             app.insert_resource(BootError(format!(
                 "Could not open your Minecraft: Story Mode install.\n\n{e}\n\n\
-                 Open mcsm.toml (next to mcsm.exe) in Notepad and set game_dir to the folder\n\
-                 that contains MinecraftStoryMode.exe, for example:\n\n    \
-                 game_dir = 'C:\\Games\\Minecraft Story Mode'\n\n\
-                 Then start mcsm.exe again."
+                 Start mcsm.exe again and choose the folder that contains MinecraftStoryMode.exe\n\
+                 (Minecraft: Story Mode, Season 1, PC)."
             )));
         }
     }

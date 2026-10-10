@@ -49,7 +49,9 @@ with C++").
 
 ## Running
 
-Point it at your install with any one of:
+On first start it asks for the folder that contains `MinecraftStoryMode.exe` and remembers it in
+`%APPDATA%\mcsm-rs\mcsm.toml` (delete that file to be asked again). Or point it at your install
+with any one of:
 
 ```text
 cargo run -p mcsm --release -- "D:\path\to\Minecraft Story Mode"

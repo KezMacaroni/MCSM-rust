@@ -11,4 +11,5 @@ ttarch.workspace = true
 ttmeta.workspace = true
 bevy.workspace = true
 fsbex = "0.3"
+rfd = "0.17"
 thiserror.workspace = true

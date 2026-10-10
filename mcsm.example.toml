@@ -1,3 +1,4 @@
-# Copy to mcsm.toml (ignored by git) and point at your own install.
+# Optional: mcsm asks for the game folder on first start. To set it by hand instead, copy this
+# to mcsm.toml (ignored by git) and point it at your own install.
 # Either the game folder or MinecraftStoryMode.exe works.
 game_dir = 'C:\Games\Minecraft Story Mode'

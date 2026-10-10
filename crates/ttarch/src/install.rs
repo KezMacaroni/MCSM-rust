@@ -15,20 +15,27 @@ pub struct Install {
 
 impl Install {
     /// Resolve the install from, in order: `explicit`, `$MCSM_GAME_DIR`, `game_dir = "..."` in
-    /// `./mcsm.toml`. Each may name the game folder or the exe itself.
+    /// `./mcsm.toml`, next to the running exe, or in the saved config (see [`save_game_dir`]).
+    /// Each may name the game folder or the exe itself; the first one that opens wins, so a
+    /// stale entry does not hide a good one. An explicit path is used alone.
     pub fn locate(explicit: Option<&Path>) -> Result<Self, Error> {
-        let given = match explicit {
-            Some(p) => p.to_owned(),
-            None => std::env::var_os(ENV_VAR)
-                .map(PathBuf::from)
-                .or_else(config_game_dir)
-                .ok_or_else(|| {
-                    Error::Config(format!(
-                        "game install not configured: pass a path, set {ENV_VAR}, or put game_dir = \"...\" in {CONFIG_FILE}"
-                    ))
-                })?,
-        };
-        Self::open(&given)
+        if let Some(p) = explicit {
+            return Self::open(p);
+        }
+        let candidates: Vec<PathBuf> =
+            std::env::var_os(ENV_VAR).map(PathBuf::from).into_iter().chain(config_game_dirs()).collect();
+        let mut first_err = None;
+        for c in &candidates {
+            match Self::open(c) {
+                Ok(i) => return Ok(i),
+                Err(e) => first_err = first_err.or(Some(e)),
+            }
+        }
+        Err(first_err.unwrap_or_else(|| {
+            Error::Config(format!(
+                "game install not configured: pass a path, set {ENV_VAR}, or put game_dir = \"...\" in {CONFIG_FILE}"
+            ))
+        }))
     }
 
     pub fn open(path: &Path) -> Result<Self, Error> {
@@ -110,15 +117,39 @@ impl Vfs {
     }
 }
 
-/// `game_dir` from `mcsm.toml` in the working directory, or else next to the running exe
-/// (shortcuts may start it elsewhere).
-fn config_game_dir() -> Option<PathBuf> {
+/// The per-user config, `%APPDATA%\mcsm-rs\mcsm.toml`: always writable, and kept when a new
+/// release is unzipped somewhere else.
+pub fn saved_config_path() -> Option<PathBuf> {
+    Some(PathBuf::from(std::env::var_os("APPDATA")?).join("mcsm-rs").join(CONFIG_FILE))
+}
+
+/// Remember `dir` as the game folder in the per-user config.
+pub fn save_game_dir(dir: &Path) -> Result<PathBuf, Error> {
+    let path = saved_config_path().ok_or_else(|| Error::Config("APPDATA is not set".into()))?;
+    let io = |e| Error::Io(path.clone(), e);
+    std::fs::create_dir_all(path.parent().unwrap_or(Path::new("."))).map_err(io)?;
+    let text = format!(
+        "# The folder that contains MinecraftStoryMode.exe, chosen when mcsm started.\n\
+         # Delete this file to be asked again.\ngame_dir = '{}'\n",
+        dir.display()
+    );
+    std::fs::write(&path, text).map_err(io)?;
+    Ok(path)
+}
+
+/// `game_dir` from `mcsm.toml` in the working directory, next to the running exe (shortcuts
+/// may start it elsewhere), and in the per-user config, in that order.
+fn config_game_dirs() -> Vec<PathBuf> {
     let beside_exe = std::env::current_exe().ok().and_then(|e| Some(e.parent()?.join(CONFIG_FILE)));
-    [Some(PathBuf::from(CONFIG_FILE)), beside_exe].into_iter().flatten().find_map(|path| {
-        let text = std::fs::read_to_string(path).ok()?;
-        text.lines().filter(|l| !l.trim_start().starts_with('#')).find_map(|line| {
-            let (k, v) = line.split_once('=')?;
-            (k.trim() == "game_dir").then(|| PathBuf::from(v.trim().trim_matches(['"', '\''])))
+    [Some(PathBuf::from(CONFIG_FILE)), beside_exe, saved_config_path()]
+        .into_iter()
+        .flatten()
+        .filter_map(|path| {
+            let text = std::fs::read_to_string(path).ok()?;
+            text.lines().filter(|l| !l.trim_start().starts_with('#')).find_map(|line| {
+                let (k, v) = line.split_once('=')?;
+                (k.trim() == "game_dir").then(|| PathBuf::from(v.trim().trim_matches(['"', '\''])))
+            })
         })
-    })
+        .collect()
 }

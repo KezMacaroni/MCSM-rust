@@ -19,6 +19,7 @@ not affiliated with or endorsed by them.
 | Crate | License | Used for |
 |---|---|---|
 | [fsbex](https://github.com/astral4/fsbex) | MIT OR Apache-2.0 | Reading FMOD FSB5 streams from the user's `.bank` files as Ogg Vorbis |
+| [rfd](https://github.com/PolyMeilex/rfd) | MIT | The "choose your game folder" dialog on first start |
 | [Bevy](https://bevyengine.org), [flate2](https://github.com/rust-lang/flate2-rs), [half](https://github.com/starkat99/half-rs), [thiserror](https://github.com/dtolnay/thiserror) | MIT OR Apache-2.0 | Engine, deflate, half floats, errors |
 
 ## Documentation and research consulted
