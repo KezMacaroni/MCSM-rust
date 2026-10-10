@@ -19,6 +19,7 @@ fn main() {
                     ),
                     Track::Float(k) => format!("float x{} {:?}", k.len(), k.iter().map(|k| (k.time, k.value)).collect::<Vec<_>>()),
                     Track::Bool(k) => format!("bool x{}", k.len()),
+                    Track::Color(k) => format!("color x{} {:?}", k.len(), k.iter().map(|k| (k.time, k.value)).collect::<Vec<_>>()),
                     _ => "other".into(),
                 };
                 println!("{}\t#{:016x}\t#{:016x}\t{desc}", a.name, r.name.0, v.name.0);

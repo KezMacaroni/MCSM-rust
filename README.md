@@ -37,10 +37,10 @@ with C++").
 | Animations (`.anm`, keyframed) and chores (`.chore`) | done: 25,008/25,008 animations, 17,832/17,832 chores parse |
 | Animated menu background (key-art chore: intro montage, then the resting shot) | done |
 | Menu music (FMOD bank -> Ogg Vorbis, looped) | done |
-| Skeletons (`.skl`), skinned meshes, skeletal animation (compressed and uncompressed keys) | done: 314/314 skeletons; 14,193 skeletal animations decode |
+| Skeletons (`.skl`), skinned meshes, skeletal animation (compressed and uncompressed keys) | done: 314/314 skeletons; 23,037 skeletal animations decode |
 | Menu: key-art characters (townsfolk idles, chickens, chore-driven actions) | done |
 | Character select (first Play): six looks, live texture / gender swap, look carried to the episode diorama | done (choice kept for the session only) |
-| Episode select (Play): diorama per episode, sliding between episodes, title / status / arrows | done (starting an episode is not implemented) |
+| Episode select (Play): diorama per episode, sliding between episodes, title / status / arrows, per-episode poses, fog and sky colors | done (starting an episode is not implemented) |
 | Settings menus (Audio/Video, Gameplay, Graphics; toggles, sliders, Apply/Restore popup), saved to `%APPDATA%\mcsm-rs\settings.txt` | done (volumes, full screen, resolution, anti-aliasing and brightness take effect) |
 | Telltale lighting on unbaked surfaces (per lighting group, from the game's shaders) and scene FX (tone curve, vignette, fog) | done |
 | Fades between menu backgrounds, the game's cursor, background preloading of menu scenes | done |

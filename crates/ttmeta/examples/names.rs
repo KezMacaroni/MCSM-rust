@@ -1,4 +1,5 @@
-//! List archived file names containing a substring: `cargo run -p ttmeta --example names -- <game-dir> <substring>`.
+//! List archived file names containing a substring: `cargo run -p ttmeta --example names -- <game-dir> <substring>`,
+//! each with its symbol hash (as chores and props refer to files).
 fn main() {
     let mut args = std::env::args().skip(1);
     let game = args.next().expect("game dir");
@@ -8,6 +9,6 @@ fn main() {
     names.sort();
     names.dedup();
     for n in names {
-        println!("{n}");
+        println!("{:016x}  {n}", ttmeta::Symbol::of(&n).0);
     }
 }

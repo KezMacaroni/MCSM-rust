@@ -113,6 +113,51 @@ pub struct SceneLight {
     wrap: f32,
     name: String,
     groups: Vec<ttmeta::Symbol>,
+    /// "Light Intensity", kept apart from `color` so chores can re-key the color.
+    intensity: f32,
+    /// The lit materials (and their light slot) this light was packed into, so chores that
+    /// key the light can update them (see [`LightAgent`]).
+    bindings: std::sync::Arc<std::sync::Mutex<Vec<(Handle<crate::lit::LitMaterial>, usize)>>>,
+}
+
+/// A light agent and the lit material slots it feeds. Chores key its "Light Color" and
+/// "Light Max Distance" (each diorama episode recolors the sky); [`sync_lights`] writes the
+/// changes into the materials.
+#[derive(Component)]
+pub struct LightAgent {
+    pub color: Vec3,
+    pub intensity: f32,
+    pub max: f32,
+    ambient: bool,
+    bindings: Vec<(Handle<crate::lit::LitMaterial>, usize)>,
+}
+
+/// Push changed light colors and ranges into the lit materials they feed. Only real changes
+/// are written (each write re-uploads every material the light feeds, thousands for the key
+/// art's lights). Positions stay where the scene put them: lights that move with the key art's
+/// montage would otherwise rewrite those materials every frame.
+pub fn sync_lights(
+    lights: Query<(Entity, &LightAgent), Changed<LightAgent>>,
+    mut materials: ResMut<Assets<crate::lit::LitMaterial>>,
+    mut written: Local<HashMap<Entity, (Vec3, f32)>>,
+) {
+    for (e, light) in &lights {
+        // Ambient at 2x, as when packed (dec016).
+        let color = light.color * light.intensity * if light.ambient { 2.0 } else { 1.0 };
+        let Some(last) = written.insert(e, (color, light.max)) else {
+            // First sight: the materials were packed from these same values.
+            continue;
+        };
+        if last == (color, light.max) {
+            continue;
+        }
+        for (handle, slot) in &light.bindings {
+            let Some(mut m) = materials.get_mut(handle) else { continue };
+            let l = &mut m.extension.uniform.lights[*slot];
+            l.color = color.extend(1.0);
+            l.params.w = light.max.min(1.0e6);
+        }
+    }
 }
 
 /// World transforms of every agent, following "attached agent" links (attachment nodes,
@@ -165,6 +210,8 @@ fn scene_lights(ctx: &mut Ctx, scene: &Scene, world: &HashMap<String, Transform>
             direction: (tf.rotation * Vec3::Z).normalize_or_zero(),
             position: tf.translation,
             color: Vec3::new(c[0], c[1], c[2]) * i,
+            intensity: i,
+            bindings: Default::default(),
             min: ctx.props.float(ctx.data, &a.props, "Light Min Distance").unwrap_or(0.0),
             max: ctx.props.float(ctx.data, &a.props, "Light Max Distance").unwrap_or(f32::MAX),
             wrap: ctx.props.float(ctx.data, &a.props, "Light Wrap Around").unwrap_or(0.0).max(0.0),
@@ -201,8 +248,13 @@ pub fn spawn_scene_with_camera(
         None
     };
 
+    // MCSM_HIDE=a,b: leave out agents whose names contain any of these (debugging).
+    let hide: Vec<String> = std::env::var("MCSM_HIDE").map(|v| v.split(',').map(|s| s.to_ascii_lowercase()).collect()).unwrap_or_default();
     for agent in &scene.agents {
         if agent.name == scene.name || skip(&agent.name) {
+            continue;
+        }
+        if hide.iter().any(|h| !h.is_empty() && agent.name.to_ascii_lowercase().contains(h.as_str())) {
             continue;
         }
         let props = Arc::new(agent.props.clone());
@@ -300,7 +352,36 @@ pub fn spawn_scene_with_camera(
             ctx.commands.entity(child).insert(ChildOf(p));
         }
     }
+    // Light agents keep the material slots they feed, for chores that re-key them.
+    for l in &lights {
+        let Some(&e) = out.agents.get(&l.name) else { continue };
+        let bindings = std::mem::take(&mut *l.bindings.lock().unwrap());
+        if bindings.is_empty() {
+            continue;
+        }
+        let c = l.color / l.intensity.max(1.0e-6);
+        ctx.commands.entity(e).insert(LightAgent {
+            color: if l.intensity > 0.0 { c } else { Vec3::ZERO },
+            intensity: l.intensity,
+            max: l.max,
+            ambient: matches!(l.kind, LightKind::Ambient),
+            bindings,
+        });
+    }
+    // The scene agent itself, so chores can key its properties (each diorama episode sets
+    // its own "Fog Color").
+    if let Some(camera) = out.camera {
+        let e = ctx.commands.spawn((Name::new(scene.name.clone()), SceneAgent { camera })).id();
+        out.agents.insert(scene.name.clone(), e);
+    }
     out
+}
+
+/// A scene's own agent (named after the scene file): its camera, whose fog and grade belong
+/// to the scene.
+#[derive(Component)]
+pub struct SceneAgent {
+    pub camera: Entity,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -390,8 +471,18 @@ pub fn spawn_mesh(
         let mesh_handle = part.mesh.clone();
         // Unbaked world surfaces are lit per pixel by their lighting group (lit.rs).
         let mut lit: Option<crate::lit::TtLightingUniform> = None;
+        let mut slots: Vec<(&SceneLight, usize)> = Vec::new();
         if shading == Shading::World && bake.is_none() {
-            let group = part.diffuse.and_then(|d| lighting_groups.iter().find(|(t, _)| *t == d).map(|(_, g)| *g));
+            // "Render Lighting Groups" names textures as the agent shows them, i.e. after a
+            // "<texture> - Texture" swap (the diorama's skydome); fall back to the mesh's own.
+            // A map naming one group whose texture keys are stale (the skydome names a texture
+            // its mesh no longer uses) still puts the whole agent in that group.
+            let only_group = lighting_groups.first().map(|(_, g)| *g).filter(|g| lighting_groups.iter().all(|(_, x)| x == g));
+            let group = [diffuse, part.diffuse]
+                .into_iter()
+                .flatten()
+                .find_map(|d| lighting_groups.iter().find(|(t, _)| *t == d).map(|(_, g)| *g))
+                .or(only_group);
             let group_lights: Vec<&SceneLight> = group.map_or(Vec::new(), |g| lights.iter().filter(|l| l.groups.contains(&g)).collect());
             // An additive surface whose group has no lights receives no light and so adds
             // nothing (the night-stars layer in a daytime scene).
@@ -402,7 +493,10 @@ pub fn spawn_mesh(
                 let name = ctx.data.name_of(mesh).unwrap_or("?");
                 if name.to_ascii_lowercase().contains(&filter.to_ascii_lowercase()) {
                     info!(
-                        "{name}: group {:?}, at {:?}, lights {:?}",
+                        "{name}: diffuse {:?} / {:?}, groups {:?}, group {:?}, at {:?}, lights {:?}",
+                        part.diffuse.and_then(|d| ctx.data.name_of(d)),
+                        diffuse.and_then(|d| ctx.data.name_of(d)),
+                        lighting_groups.iter().map(|(t, _)| ctx.data.name_of(*t).unwrap_or("?")).collect::<Vec<_>>(),
                         group,
                         agent_world.translation,
                         group_lights.iter().map(|l| (l.name.clone(), l.position, l.min, l.max, l.color)).collect::<Vec<_>>()
@@ -425,6 +519,7 @@ pub fn spawn_mesh(
                         vector: vector.extend(0.0),
                         params: Vec4::new(kind, l.wrap, l.min, l.max.min(1.0e6)),
                     };
+                    slots.push((*l, u.count as usize));
                     u.count += 1;
                 }
                 lit = Some(u);
@@ -435,6 +530,9 @@ pub fn spawn_mesh(
             let mut base = material;
             base.unlit = false;
             let handle = ctx.lit_materials.add(crate::lit::LitMaterial { base, extension: crate::lit::TtLighting { uniform } });
+            for (light, slot) in &slots {
+                light.bindings.lock().unwrap().push((handle.clone(), *slot));
+            }
             owned.lit.push((handle.clone(), base_alpha, part.diffuse));
             ctx.commands.spawn(MeshMaterial3d(handle)).id()
         } else {

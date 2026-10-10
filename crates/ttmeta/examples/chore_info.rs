@@ -1,4 +1,5 @@
-//! Print a chore's agents and resources: `cargo run -p ttmeta --example chore_info -- <file.chore>`.
+//! Print a chore's agents and resources: `cargo run -p ttmeta --example chore_info -- <file.chore>`,
+//! including whether each embedded animation decoded.
 fn main() {
     let path = std::env::args().nth(1).expect("chore path");
     let c = ttmeta::Chore::parse(&std::fs::read(path).unwrap()).unwrap();

@@ -55,6 +55,9 @@ pub struct Animation {
     pub values: Vec<Value>,
     /// False if a non-keyframed value type was present (it was skipped, not decoded).
     pub complete: bool,
+    /// The header's flags and additive mask (meaning not yet established).
+    pub flags: u32,
+    pub additive_mask: f32,
 }
 
 const KF_FLOAT: u64 = crc64("KeyframedValue<float>");
@@ -65,6 +68,7 @@ const KF_VEC3: u64 = crc64("KeyframedValue<Vector3>");
 const CSPK: u64 = crc64("CompressedSkeletonPoseKeys");
 const KF_TEXTURE: u64 = crc64("KeyframedValue<Handle<T3Texture>>");
 const SKELETON_POSE: u64 = crc64("SkeletonPoseValue");
+const KF_STRING: u64 = crc64("KeyframedValue<String>");
 
 /// Raw byte size of intrinsic value types that appear in keyframed values (not block-wrapped).
 fn raw_size(type_hash: u64) -> Option<usize> {
@@ -107,13 +111,13 @@ impl Animation {
         if !(4..=5).contains(&version) {
             return Err(Error::Format(format!("animation version {version}")));
         }
-        let _flags = r.u32()?;
+        let flags = r.u32()?;
         let name = r.symbol()?;
         let length = r.f32()?;
-        let _additive_mask = r.f32()?;
+        let additive_mask = r.f32()?;
         let _tool_props = r.bool()?;
         let end = r.block()?;
-        let mut anim = Animation { name, length, values: Vec::new(), complete: true };
+        let mut anim = Animation { name, length, values: Vec::new(), complete: true, flags, additive_mask };
         let count = r.u32()?;
         let _buffer = r.u32()?;
         let types = (0..r.u32()?).map(|_| Ok((r.u64()?, r.u16()?, r.u16()?))).collect::<Result<Vec<_>, Error>>()?;
@@ -130,7 +134,7 @@ impl Animation {
                     anim.values.push(Value { name: Symbol::NONE, flags: 0, track: Track::Skeleton(keys) });
                     continue;
                 }
-                if t != KF_FLOAT && t != KF_BOOL && t != KF_TRANSFORM && t != KF_COLOR && t != KF_VEC3 && t != KF_TEXTURE && raw_size(t).is_none() {
+                if t != KF_FLOAT && t != KF_BOOL && t != KF_TRANSFORM && t != KF_COLOR && t != KF_VEC3 && t != KF_TEXTURE && t != KF_STRING && raw_size(t).is_none() {
                     anim.complete = false;
                     break 'types;
                 }
@@ -168,6 +172,14 @@ impl Animation {
                             r.seek(end)?;
                             Ok(s)
                         })?)
+                    }
+                    // Strings (e.g. "Scared" on diorama poses): min, max and each key's value
+                    // are block-wrapped, like handles.
+                    KF_STRING => {
+                        r.block_string()?;
+                        r.block_string()?;
+                        keys(r, |r| r.block_string())?;
+                        Track::Other
                     }
                     KF_COLOR => {
                         r.skip(32)?;

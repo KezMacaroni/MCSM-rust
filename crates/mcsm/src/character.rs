@@ -60,6 +60,11 @@ struct Walk {
 #[derive(Component)]
 pub struct Rig {
     joints: HashMap<Symbol, Joint>,
+    /// The skeleton's root bone: layers that animate it pose the body (face layers do not).
+    root: Symbol,
+    /// The idle the character's own prop names, when the scene blanked it: a base for
+    /// additive layers only.
+    base_idle: Option<Arc<Animation>>,
     idle: Option<Idle>,
     walk: Option<Walk>,
     time: f32,
@@ -118,6 +123,17 @@ fn idle_animation(ctx: &mut crate::stage::Ctx, props: &ttmeta::PropertySet) -> O
     }
     let chore = ttmeta::Chore::parse(&ctx.data.read_symbol(chore)?).ok()?;
     Some(Idle::Chore(crate::chore::ChorePlayer::new(ctx.data, chore, Arc::new(HashMap::new()), true)))
+}
+
+/// The first full-body idle animation named by the agent's parent props (its character prop).
+fn parent_idle(ctx: &mut crate::stage::Ctx, props: &ttmeta::PropertySet) -> Option<Arc<Animation>> {
+    props.parents.iter().find_map(|&p| {
+        let parent = ctx.props.file(ctx.data, p)?;
+        match idle_animation(ctx, &parent)? {
+            Idle::Anim(a) => Some(a),
+            Idle::Chore(c) => c.skeletal_layers(ctx.data, 0.0).into_iter().find(|l| !l.3).map(|l| l.0),
+        }
+    })
 }
 
 fn walk_animation(ctx: &mut crate::stage::Ctx, props: &ttmeta::PropertySet) -> Option<Walk> {
@@ -183,13 +199,17 @@ pub fn spawn(
     }
 
     let idle = idle_animation(ctx, props);
-    if idle.is_none() && ctx.props.get(ctx.data, props, "Walk Animation - Idle").is_some() {
+    // A blank idle ((none, none)) is deliberate: the agent holds chore poses instead.
+    let blank = matches!(ctx.props.get(ctx.data, props, "Walk Animation - Idle"), Some(Value::AnimOrChore(a, c)) if a == Symbol::NONE && c == Symbol::NONE);
+    if idle.is_none() && !blank && ctx.props.get(ctx.data, props, "Walk Animation - Idle").is_some() {
         warn!("{agent_name}: idle animation did not load");
     }
     // Desynchronize idles of identical characters.
     let phase = (Symbol::of(agent_name).0 % 997) as f32 / 997.0 * idle.as_ref().map_or(0.0, Idle::length);
     let walk = walk_animation(ctx, props);
-    ctx.commands.entity(entity).insert((Rig { joints, idle, walk, time: phase }, SkeletalOverride::default()));
+    let root_bone = skeleton.bones[0].name;
+    let base_idle = if idle.is_none() { parent_idle(ctx, props) } else { None };
+    ctx.commands.entity(entity).insert((Rig { joints, root: root_bone, base_idle, idle, walk, time: phase }, SkeletalOverride::default()));
     true
 }
 
@@ -204,16 +224,19 @@ fn sample(k: &SkeletonKeys, bone: usize, t: f32) -> Option<(Vec3, Quat)> {
 pub fn animate(
     time: Res<Time>,
     data: Option<Res<GameData>>,
-    mut rigs: Query<(&mut Rig, &mut SkeletalOverride, &GlobalTransform, Option<&IdleOverride>, Option<&HeldPose>)>,
+    mut rigs: Query<(&mut Rig, &mut SkeletalOverride, &GlobalTransform, Option<&IdleOverride>, Option<&HeldPose>, Option<&Name>)>,
     mut transforms: Query<&mut Transform>,
 ) {
     let Some(data) = data else { return };
     let dt = time.delta_secs().min(1.0 / 30.0);
-    for (mut rig, mut over, global, idle_override, held) in &mut rigs {
+    let log = std::env::var("MCSM_RIG_LOG").ok();
+    for (mut rig, mut over, global, idle_override, held, name) in &mut rigs {
         rig.time += dt;
         let rig = &mut *rig;
         let mut layers = std::mem::take(&mut over.0);
-        let chore_drives_body = layers.iter().any(|l| !l.3);
+        let root = rig.root;
+        let poses_body = |l: &(Arc<Animation>, f32, f32, bool)| !l.3 && l.0.skeleton().is_some_and(|k| k.bones.contains(&root));
+        let chore_drives_body = layers.iter().any(poses_body);
         if !chore_drives_body {
             // No chore drives the whole body: the idle plays underneath.
             match &rig.idle {
@@ -228,6 +251,14 @@ pub fn animate(
                         layers.extend(h.0.iter().cloned());
                     }
                 }
+            }
+        }
+        // Additive body layers with nothing underneath would compose onto the T-pose: put the
+        // character's own idle under them (the diorama's running Axel, whose scene entry blanks
+        // the idle his character prop names).
+        if !layers.iter().any(poses_body) && layers.iter().any(|l| l.3 && l.0.skeleton().is_some_and(|k| k.bones.contains(&root))) {
+            if let Some(base) = &rig.base_idle {
+                layers.push((base.clone(), rig.time % base.length.max(0.01), 1.0, false));
             }
         }
         // Moving agents walk: blend the walk cycle in by ground speed and advance it by distance,
@@ -246,6 +277,17 @@ pub fn animate(
             if walk.weight > 0.01 {
                 layers.push((walk.anim.clone(), walk.phase, walk.weight, false));
             }
+        }
+        // MCSM_RIG_LOG=<agent>: the layers posing that agent this frame (debugging).
+        if log.as_deref().is_some_and(|l| name.is_some_and(|n| n.as_str() == l)) {
+            info!(
+                "{l:?}: idle {} override {} held {} layers {:?}",
+                rig.idle.is_some(),
+                idle_override.is_some(),
+                held.map_or(0, |h| h.0.len()),
+                layers.iter().map(|(a, t, w, add)| (data.name_of(a.name).unwrap_or("?").to_owned(), *t, *w, *add)).collect::<Vec<_>>(),
+                l = log
+            );
         }
         // Base layers first, additive ones on top.
         layers.sort_by_key(|l| l.3);

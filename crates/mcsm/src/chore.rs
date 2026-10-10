@@ -3,7 +3,8 @@
 //! Supported per resource:
 //! - property tracks keyed in the chore's control animation: `absoluteNode` (the agent's
 //!   transform), `Runtime: Visible`, `Render Global Scale`, `Render Constant Alpha`,
-//!   `Text Color`, and the UI texture-state offset ([`UV_STATE`]);
+//!   `Text Color`, the UI texture-state offset ([`UV_STATE`]), a scene agent's `Fog Color`,
+//!   and a light's `Light Color` / `Light Max Distance`;
 //! - `.anm` resources whose Transform tracks are additive (camera drift), placed on the timeline
 //!   by their blocks and the control tracks `time` (normalized animation time) and
 //!   `contribution` (weight);
@@ -147,6 +148,11 @@ struct Pose {
     scale: Option<f32>,
     constant_alpha: Option<f32>,
     text_color: Option<[f32; 4]>,
+    /// "Fog Color" keyed on a scene agent.
+    fog_color: Option<[f32; 4]>,
+    /// "Light Color" / "Light Max Distance" keyed on a light agent.
+    light_color: Option<[f32; 4]>,
+    light_max: Option<f32>,
     uv_state: Option<f32>,
     uv_state_u: Option<f32>,
     skeletal: Vec<(Arc<Animation>, f32, f32, bool)>,
@@ -261,6 +267,15 @@ fn evaluate(
             if let Some(Track::Color(k)) = track(ctrl, "Text Color") {
                 pose.text_color = sample_color(k, t).or(pose.text_color);
             }
+            if let Some(Track::Color(k)) = track(ctrl, "Fog Color") {
+                pose.fog_color = sample_color(k, t).or(pose.fog_color);
+            }
+            if let Some(Track::Color(k)) = track(ctrl, "Light Color") {
+                pose.light_color = sample_color(k, t).or(pose.light_color);
+            }
+            if let Some(Track::Float(k)) = track(ctrl, "Light Max Distance") {
+                pose.light_max = sample_float(k, t).or(pose.light_max);
+            }
             if let Some(v) = ctrl.values.iter().find(|v| UV_STATES.contains(&v.name)) {
                 if let Track::Float(k) = &v.track {
                     pose.uv_state = sample_float(k, t).or(pose.uv_state);
@@ -345,6 +360,9 @@ pub fn play(
     mut cache: ResMut<crate::data::AssetCache>,
     mut images: ResMut<Assets<Image>>,
     mut lit_materials: ResMut<Assets<crate::lit::LitMaterial>>,
+    scene_agents: Query<&crate::stage::SceneAgent>,
+    mut fogs: Query<&mut bevy::pbr::DistanceFog>,
+    mut lights: Query<&mut crate::stage::LightAgent>,
 ) {
     let Some(data) = data else { return };
     for (player_entity, mut player, one_shot) in &mut players {
@@ -368,8 +386,33 @@ pub fn play(
         evaluate(&player.chore, &player.anims, &player.nested, player.time, &mut poses, &data, 0, None);
         for (name, pose) in poses {
             let Some(&e) = player.agents.get(&name.to_ascii_lowercase()) else { continue };
+            if let (Some(c), Ok(scene)) = (pose.fog_color, scene_agents.get(e)) {
+                if let Ok(mut fog) = fogs.get_mut(scene.camera) {
+                    fog.color = Color::srgba(c[0], c[1], c[2], 1.0);
+                }
+                continue;
+            }
+            if pose.light_color.is_some() || pose.light_max.is_some() {
+                if let Ok(mut light) = lights.get_mut(e) {
+                    if let Some(c) = pose.light_color {
+                        let c = Vec3::new(c[0], c[1], c[2]);
+                        if light.color != c {
+                            light.color = c;
+                        }
+                    }
+                    if let Some(m) = pose.light_max {
+                        if light.max != m {
+                            light.max = m;
+                        }
+                    }
+                }
+            }
             let Ok((base, mut tf, mut vis, mats, skeletal)) = agents.get_mut(e) else { continue };
-            if !pose.skeletal.is_empty() && pose.skeletal.iter().any(|l| !l.3) {
+            // Full-body layers become the held pose; additive-only ones only when there is no
+            // full-body pose (an "_add" body animation, played as a pose by `character::animate`).
+            if pose.skeletal.iter().any(|l| !l.3) {
+                player.last_skeletal.insert(name.clone(), pose.skeletal.clone());
+            } else if !pose.skeletal.is_empty() && !player.last_skeletal.get(&name).is_some_and(|l| l.iter().any(|l| !l.3)) {
                 player.last_skeletal.insert(name.clone(), pose.skeletal.clone());
             }
             if let (Some(mut s), false) = (skeletal, finished) {

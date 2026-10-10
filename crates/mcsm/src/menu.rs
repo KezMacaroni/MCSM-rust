@@ -713,8 +713,9 @@ pub fn build(
             "graphics" => &[Page::Settings, Page::Graphics],
             "confirm" => &[Page::Settings, Page::ConfirmSettings],
             "characters" => &[Page::CharacterSelect],
+            // MCSM_EPISODE=n: which episode it opens on.
             "episodes" => {
-                state.episode = 1;
+                state.episode = std::env::var("MCSM_EPISODE").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
                 state.show_pending = true;
                 &[Page::EpisodeSelect]
             }
@@ -1260,6 +1261,7 @@ pub fn rebuild(
         if state.show_pending {
             state.show_pending = false;
             let n = state.episode;
+            restore_cast(ctx.commands, &agents, n);
             for chore in [format!("ui_diorama_episode{n}Setup.chore"), format!("ui_diorama_episode{n}Show.chore")] {
                 play_diorama(ctx.commands, &data, &agents, &chore);
             }
@@ -1299,7 +1301,12 @@ fn spawn_diorama(ctx: &mut Ctx, menu: &MenuAssets) -> Option<Diorama> {
     let agents = Arc::new(spawned.agents);
     for n in 1..=menu.episodes {
         if let Some(c) = load_chore(data, &format!("ui_diorama_episode{n}Hold.chore")) {
-            let mut p = ChorePlayer::new(data, c, agents.clone(), false);
+            // Only this episode's agents: show chores also move neighbouring episodes' casts
+            // out of view (episode 5's sends episode 4's characters 100 units away), which must
+            // not happen before those episodes are ever shown.
+            let own: HashMap<String, Entity> =
+                agents.iter().filter(|(name, _)| episode_of(name).is_none_or(|m| m == n)).map(|(k, v)| (k.clone(), *v)).collect();
+            let mut p = ChorePlayer::new(data, c, Arc::new(own), false);
             p.time = p.chore.length;
             ctx.commands.spawn((p, DespawnWhenDone));
         }
@@ -1309,6 +1316,25 @@ fn spawn_diorama(ctx: &mut Ctx, menu: &MenuAssets) -> Option<Diorama> {
         let _ = load_chore(data, &format!("ui_diorama_transition{}to{n}.chore", n + 1));
     }
     Some(Diorama { agents, camera: spawned.camera })
+}
+
+/// The episode a diorama agent belongs to, from an `episode<N>` in its name.
+fn episode_of(name: &str) -> Option<u32> {
+    let lower = name.to_ascii_lowercase();
+    let rest = &lower[lower.find("episode")? + "episode".len()..];
+    rest.chars().next()?.to_digit(10)
+}
+
+/// Put an episode's cast back where the scene placed it before the episode is shown (a
+/// neighbour's show chore may have moved it out of view).
+fn restore_cast(commands: &mut Commands, agents: &HashMap<String, Entity>, n: u32) {
+    if let Some(&e) = agents.get(&format!("ui_diorama_episode{n}Characters")) {
+        commands.entity(e).queue(|mut ent: EntityWorldMut| {
+            if let Some(base) = ent.get::<crate::chore::BaseTransform>().copied() {
+                ent.insert(base.0);
+            }
+        });
+    }
 }
 
 /// Build the character-select and diorama scenes ahead of time, a few seconds into the main
@@ -1500,6 +1526,7 @@ fn start_slide(commands: &mut Commands, data: &GameData, diorama: &Diorama, menu
         return;
     }
     let to = to as u32;
+    restore_cast(commands, &diorama.agents, to);
     play_diorama(commands, data, &diorama.agents, &format!("ui_diorama_episode{to}Setup.chore"));
     play_diorama(commands, data, &diorama.agents, if dir < 0 { "ui_diorama_transitionLeft.chore" } else { "ui_diorama_transitionRight.chore" });
     let length = play_diorama(commands, data, &diorama.agents, &format!("ui_diorama_transition{from}to{to}.chore"));

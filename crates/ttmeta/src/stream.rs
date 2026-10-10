@@ -59,6 +59,10 @@ impl<'a> Reader<'a> {
         Reader { buf, pos }
     }
 
+    pub fn pos(&self) -> usize {
+        self.pos
+    }
+
     pub fn remaining(&self) -> usize {
         self.buf.len().saturating_sub(self.pos)
     }
