@@ -335,6 +335,8 @@ pub fn spawn_mesh(
         _ => Vec::new(),
     };
     for (part_index, part) in loaded.parts.iter().enumerate() {
+        // Glass opacity applies to 3D surfaces (UI meshes keep other data at that offset).
+        let opacity = if shading == Shading::World { part.opacity } else { None };
         let pixel_art = shading == Shading::World;
         // "<texture> - Texture" swaps a texture on the agent's meshes (outfits, e.g. Magnus's
         // armor; the episode menu's appearanceSwap uses "skM1_jesse - Texture").
@@ -344,7 +346,12 @@ pub fn spawn_mesh(
         });
         let tex = diffuse.and_then(|s| ctx.cache.image(ctx.data, ctx.images, s, pixel_art));
         let bake = part.bake.and_then(|s| ctx.cache.image(ctx.data, ctx.images, s, false));
-        let c = [diffuse_color[0] * part.tint[0], diffuse_color[1] * part.tint[1], diffuse_color[2] * part.tint[2], diffuse_color[3] * part.tint[3] * alpha];
+        let c = [
+            diffuse_color[0] * part.tint[0],
+            diffuse_color[1] * part.tint[1],
+            diffuse_color[2] * part.tint[2],
+            diffuse_color[3] * part.tint[3] * alpha * opacity.unwrap_or(1.0),
+        ];
         let material = match shading {
             Shading::Ui => StandardMaterial {
                 base_color: Color::srgba(c[0], c[1], c[2], c[3]),
@@ -357,7 +364,8 @@ pub fn spawn_mesh(
             // "Render Constant Alpha" below 1 makes a world surface translucent (e.g. the
             // character-select floor shadow at 0.2).
             Shading::World => StandardMaterial {
-                base_color: Color::srgba(c[0], c[1], c[2], if alpha < 0.999 { c[3] } else { 1.0 }),
+                // Constant alpha below 1 or a glass material's opacity make it translucent.
+                base_color: Color::srgba(c[0], c[1], c[2], if alpha < 0.999 || opacity.is_some() { c[3] } else { 1.0 }),
                 base_color_texture: tex,
                 unlit: bake.is_none(),
                 alpha_mode: match part.blend {
@@ -422,7 +430,7 @@ pub fn spawn_mesh(
                 lit = Some(u);
             }
         }
-        let base_alpha = diffuse_color[3] * part.tint[3] * alpha_multiply;
+        let base_alpha = diffuse_color[3] * part.tint[3] * alpha_multiply * opacity.unwrap_or(1.0);
         let material_entity = if let Some(uniform) = lit {
             let mut base = material;
             base.unlit = false;

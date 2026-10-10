@@ -17,4 +17,19 @@ fn main() {
         }
     }
     std::fs::write(out, ppm).unwrap();
+    // ALPHA_REGION=u0,v0,u1,v1: print the average alpha there.
+    if let Ok(r) = std::env::var("ALPHA_REGION") {
+        let v: Vec<f32> = r.split(',').map(|x| x.parse().unwrap()).collect();
+        let (w, h) = (t.width as f32, t.height as f32);
+        let (mut sum, mut n, mut min) = (0u64, 0u64, 255u8);
+        for y in (v[1] * h) as u32..(v[3] * h) as u32 {
+            for x in (v[0] * w) as u32..(v[2] * w) as u32 {
+                let a = rgba[((y * t.width + x) * 4 + 3) as usize];
+                sum += a as u64;
+                n += 1;
+                min = min.min(a);
+            }
+        }
+        println!("alpha avg {} min {}", sum / n.max(1), min);
+    }
 }

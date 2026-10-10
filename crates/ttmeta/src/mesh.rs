@@ -36,6 +36,9 @@ pub struct Submesh {
     pub blend: Blend,
     /// Index into `Mesh::palettes` for skinned submeshes.
     pub palette: Option<u32>,
+    /// Opacity of an alpha-blended submesh (f32 after the blend word, at 0x70 of the material
+    /// block; e.g. 0.2 on Magnus's glass fishbowl helmet). `None` when unset (0) or not blended.
+    pub opacity: Option<f32>,
 }
 
 /// Submesh blend mode (u32 at offset 0x6c of the submesh's material block). Meanings inferred
@@ -133,8 +136,10 @@ impl Mesh {
             r.seek(header_end)?;
             let material = r.bytes(0x88)?;
             let blend = Blend::from_code(u32::from_le_bytes(material[0x6c..0x70].try_into().unwrap()));
+            let opacity = Some(f32::from_le_bytes(material[0x70..0x74].try_into().unwrap()))
+                .filter(|a| blend == Blend::Alpha && *a > 0.0 && *a <= 1.0);
             let tint = r.vec::<4>()?;
-            raw.push(Submesh { first_index: first, index_count: tris * 3, textures, tint, blend, palette });
+            raw.push(Submesh { first_index: first, index_count: tris * 3, textures, tint, blend, palette, opacity });
         }
 
         r.skip_block()?;

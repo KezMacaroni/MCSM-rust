@@ -97,6 +97,8 @@ pub struct MeshPart {
     pub tint: [f32; 4],
     /// For skinned parts: the bones the mesh's joint indices refer to, in order.
     pub palette: Option<Vec<Symbol>>,
+    /// Material opacity of an alpha-blended part (glass).
+    pub opacity: Option<f32>,
 }
 
 pub struct LoadedMesh {
@@ -185,7 +187,7 @@ pub fn mesh(m: &ttmeta::Mesh, meshes: &mut Assets<Mesh>) -> LoadedMesh {
         if !mesh.contains_attribute(Mesh::ATTRIBUTE_NORMAL) {
             mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, vec![[0.0, 1.0, 0.0]; order.len()]);
         }
-        parts.push(MeshPart { mesh: meshes.add(mesh), blend: sm.blend, diffuse: slot(sm, DIFFUSE), bake: slot(sm, BAKE), tint: sm.tint, palette: palette.cloned() });
+        parts.push(MeshPart { mesh: meshes.add(mesh), blend: sm.blend, diffuse: slot(sm, DIFFUSE), bake: slot(sm, BAKE), tint: sm.tint, palette: palette.cloned(), opacity: sm.opacity });
     }
     LoadedMesh { parts }
 }
