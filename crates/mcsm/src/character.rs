@@ -150,26 +150,27 @@ fn walk_animation(ctx: &mut crate::stage::Ctx, props: &ttmeta::PropertySet) -> O
     Some(Walk { anim: Arc::new(anim), speed, phase: 0.0, weight: 0.0, last: None })
 }
 
-/// Spawn the skeleton and meshes of a character agent. Returns false if `props` do not
-/// describe one.
+/// Spawn the skeleton and meshes of a character agent. Returns its bone entities by bone
+/// name (for agents attached to a bone, e.g. a held torch), or None if `props` do not
+/// describe a character.
 pub fn spawn(
     ctx: &mut crate::stage::Ctx,
     entity: Entity,
     agent_name: &str,
     props: &ttmeta::PropertySet,
     mut spawn_mesh: impl FnMut(&mut crate::stage::Ctx, Entity, Symbol, &Skin),
-) -> bool {
-    let Some(Value::Symbols(meshes)) = ctx.props.get(ctx.data, props, "D3D Mesh List") else { return false };
-    let Some(skl) = ctx.props.symbol(ctx.data, props, "Skeleton File") else { return false };
+) -> Option<HashMap<Symbol, Entity>> {
+    let Some(Value::Symbols(meshes)) = ctx.props.get(ctx.data, props, "D3D Mesh List") else { return None };
+    let Some(skl) = ctx.props.symbol(ctx.data, props, "Skeleton File") else { return None };
     let skeleton = match ctx.data.read_symbol(skl).map(|b| Skeleton::parse(&b)) {
         Some(Ok(s)) => s,
         Some(Err(e)) => {
             warn!("{agent_name}: skeleton: {e}");
-            return false;
+            return None;
         }
         None => {
             warn!("{agent_name}: skeleton {} missing", ctx.data.name_of(skl).unwrap_or("?"));
-            return false;
+            return None;
         }
     };
 
@@ -191,7 +192,7 @@ pub fn spawn(
         joints.insert(bone.name, Joint { entity: e, rest, length: Vec3::from_array(bone.local_pos).length() });
         bind.insert(bone.name, g);
     }
-    let Some(&root) = entities.first() else { return false };
+    let Some(&root) = entities.first() else { return None };
     let skin = Skin { joints: joints.iter().map(|(s, j)| (*s, j.entity)).collect(), bind, root };
 
     for (container, m) in mesh_list(ctx, entity, props, &meshes) {
@@ -209,8 +210,9 @@ pub fn spawn(
     let walk = walk_animation(ctx, props);
     let root_bone = skeleton.bones[0].name;
     let base_idle = if idle.is_none() { parent_idle(ctx, props) } else { None };
+    let bones = joints.iter().map(|(s, j)| (*s, j.entity)).collect();
     ctx.commands.entity(entity).insert((Rig { joints, root: root_bone, base_idle, idle, walk, time: phase }, SkeletalOverride::default()));
-    true
+    Some(bones)
 }
 
 fn sample(k: &SkeletonKeys, bone: usize, t: f32) -> Option<(Vec3, Quat)> {
@@ -295,18 +297,24 @@ pub fn animate(
         let mut pose: HashMap<Symbol, (Vec3, Quat)> = rig.joints.iter().map(|(s, j)| (*s, (j.rest.translation, j.rest.rotation))).collect();
         for (anim, t, w, additive) in &layers {
             let Some(k) = anim.skeleton() else { continue };
+            let mut apply = |name: &Symbol, p: Vec3, rot: Quat| {
+                let Some(cur) = pose.get_mut(name) else { return };
+                if *additive {
+                    cur.1 = (cur.1 * Quat::IDENTITY.slerp(rot, *w)).normalize();
+                    cur.0 += p * *w;
+                } else {
+                    cur.0 = cur.0.lerp(p, *w);
+                    cur.1 = cur.1.slerp(rot, *w);
+                }
+            };
             for (b, name) in k.bones.iter().enumerate() {
                 let Some(joint) = rig.joints.get(name) else { continue };
                 let Some((dir, rot)) = sample(k, b, *t) else { continue };
-                let cur = pose.get_mut(name).unwrap();
-                if *additive {
-                    cur.1 = (cur.1 * Quat::IDENTITY.slerp(rot, *w)).normalize();
-                    cur.0 += dir * joint.length * *w;
-                } else {
-                    cur.0 = cur.0.lerp(dir * joint.length, *w);
-                    cur.1 = cur.1.slerp(rot, *w);
-                }
+                apply(name, dir * joint.length, rot);
             }
+        }
+        if log.as_deref().is_some_and(|l| name.is_some_and(|n| n.as_str() == l)) {
+            info!("root {:?}: {:?} (rest {:?})", root, pose.get(&root), rig.joints.get(&root).map(|j| j.rest.translation));
         }
         for (name, (p, r)) in pose {
             if let Ok(mut tf) = transforms.get_mut(rig.joints[&name].entity) {

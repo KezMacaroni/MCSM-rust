@@ -63,6 +63,23 @@ fn main() {
                         Track::Other => "other",
                     })
                     .collect();
+                // Transform tracks (root motion): name hash and first / last positions.
+                for v in &a.values {
+                    if let Track::Transform(k) = &v.track {
+                        println!("  transform tracks #{:016x}: x{} first {:?} last {:?}", v.name.0, k.len(), k.first().map(|k| k.value.pos), k.last().map(|k| k.value.pos));
+                        if std::env::var_os("ANIM_KEYS").is_some() {
+                            for key in k {
+                                println!("    t {:.3} pos {:?} rot {:?}", key.time, key.value.pos, key.value.rot);
+                            }
+                        }
+                    }
+                }
+                if let (Some(k), true) = (a.skeleton(), std::env::var_os("ANIM_KEYS").is_some()) {
+                    let n = k.positions.first().map_or(0, |p| p.len());
+                    for i in (0..n).step_by((n / 8).max(1)) {
+                        println!("    root keys [{i}] pos {:?}", k.positions[0][i]);
+                    }
+                }
                 println!(
                     "{name}: {} bytes, flags {:#x}, additive mask {}, length {}, complete {}, values {:?}, skeleton {:?}",
                     bytes.len(),

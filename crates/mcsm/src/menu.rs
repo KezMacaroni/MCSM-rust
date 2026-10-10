@@ -1301,11 +1301,12 @@ fn spawn_diorama(ctx: &mut Ctx, menu: &MenuAssets) -> Option<Diorama> {
     let agents = Arc::new(spawned.agents);
     for n in 1..=menu.episodes {
         if let Some(c) = load_chore(data, &format!("ui_diorama_episode{n}Hold.chore")) {
-            // Only this episode's agents: show chores also move neighbouring episodes' casts
-            // out of view (episode 5's sends episode 4's characters 100 units away), which must
-            // not happen before those episodes are ever shown.
+            // Only agents named for this episode (its cast and props): show chores also hide or
+            // move other episodes' sets and casts (episode 5's hides episode 4's terrain and sends
+            // its characters 100 units away), and the camera, lights and fog belong to the
+            // episode actually shown.
             let own: HashMap<String, Entity> =
-                agents.iter().filter(|(name, _)| episode_of(name).is_none_or(|m| m == n)).map(|(k, v)| (k.clone(), *v)).collect();
+                agents.iter().filter(|(name, _)| episode_of(name) == Some(n)).map(|(k, v)| (k.clone(), *v)).collect();
             let mut p = ChorePlayer::new(data, c, Arc::new(own), false);
             p.time = p.chore.length;
             ctx.commands.spawn((p, DespawnWhenDone));

@@ -239,6 +239,7 @@ pub fn spawn_scene_with_camera(
     let mut out = Spawned::default();
     let layers = RenderLayers::layer(layer);
     let mut attachments = Vec::new();
+    let mut bones: HashMap<String, HashMap<ttmeta::Symbol, Entity>> = HashMap::new();
     let world = world_transforms(ctx, scene);
     let lights = if shading == Shading::World { scene_lights(ctx, scene, &world) } else { Vec::new() };
     // The scene's own FX (tone curve, vignette, fog), carried by its scene agent.
@@ -287,7 +288,7 @@ pub fn spawn_scene_with_camera(
             .id();
         out.agents.insert(agent.name.clone(), entity);
         if !location.attached_agent.is_empty() {
-            attachments.push((entity, location.attached_agent.clone()));
+            attachments.push((entity, location.attached_agent.clone(), location.attached_node));
         }
 
         if out.camera.is_none() && camera.is_none_or(|c| c == agent.name) && ctx.props.inherits(ctx.data, &props, "module_camera.prop") {
@@ -327,9 +328,13 @@ pub fn spawn_scene_with_camera(
 
         let agent_world = world.get(&agent.name).copied().unwrap_or_default();
         let mut owned = crate::chore::AgentMaterials::default();
-        let is_character = crate::character::spawn(ctx, entity, &agent.name, &props, |ctx, container, mesh, skin| {
+        let character_bones = crate::character::spawn(ctx, entity, &agent.name, &props, |ctx, container, mesh, skin| {
             spawn_mesh(ctx, container, &props, mesh, &layers, shading, &lights, agent_world, Some(skin), &mut owned)
         });
+        let is_character = character_bones.is_some();
+        if let Some(b) = character_bones {
+            bones.insert(agent.name.clone(), b);
+        }
         if !is_character {
             if let Some(list) = match ctx.props.get(ctx.data, &props, "D3D Mesh List") {
                 // Every renderable inherits an empty list (module_renderable.prop).
@@ -347,8 +352,10 @@ pub fn spawn_scene_with_camera(
         ctx.commands.entity(entity).insert(owned);
     }
 
-    for (child, parent) in attachments {
-        if let Some(&p) = out.agents.get(&parent) {
+    for (child, parent, node) in attachments {
+        // Attached to a bone of a character (held items): parent to that bone.
+        let bone = bones.get(&parent).and_then(|b| b.get(&node)).copied();
+        if let Some(p) = bone.or_else(|| out.agents.get(&parent).copied()) {
             ctx.commands.entity(child).insert(ChildOf(p));
         }
     }
@@ -376,6 +383,29 @@ pub fn spawn_scene_with_camera(
     }
     out
 }
+
+/// How far animation can carry a skinned body from its unposed mesh (the diorama's leaping
+/// Jesse is placed 2.6 units below the camera's view and lifted into it by the jump).
+const SKINNED_REACH: f32 = 5.0;
+
+/// Culling uses the unposed mesh's bounds; grow skinned meshes' bounds by [`SKINNED_REACH`]
+/// whenever the engine (re)computes them, so animated bodies are not culled while in view.
+pub fn grow_skinned_bounds(
+    mut bounds: Query<(&mut bevy::camera::primitives::Aabb, Option<&GrownBounds>, Entity), (With<bevy::mesh::skinning::SkinnedMesh>, Changed<bevy::camera::primitives::Aabb>)>,
+    mut commands: Commands,
+) {
+    for (mut aabb, grown, e) in &mut bounds {
+        if grown.is_some_and(|g| g.0 == aabb.half_extents) {
+            continue;
+        }
+        aabb.half_extents += bevy::math::Vec3A::splat(SKINNED_REACH);
+        commands.entity(e).insert(GrownBounds(aabb.half_extents));
+    }
+}
+
+/// The half extents [`grow_skinned_bounds`] last set.
+#[derive(Component)]
+pub struct GrownBounds(bevy::math::Vec3A);
 
 /// A scene's own agent (named after the scene file): its camera, whose fog and grade belong
 /// to the scene.

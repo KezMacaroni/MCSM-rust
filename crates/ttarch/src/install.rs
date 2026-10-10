@@ -7,6 +7,12 @@ pub const EXE_NAME: &str = "MinecraftStoryMode.exe";
 pub const ENV_VAR: &str = "MCSM_GAME_DIR";
 pub const CONFIG_FILE: &str = "mcsm.toml";
 
+/// The episode set the menus run with. Each episode's data is a "bootable" set, turned on when
+/// that episode boots; the menu boots with episode 1's (MenuBoot.lua names it). The other
+/// episodes' copies of shared files (e.g. later episodes' `skM1_petra.prop`, which puts Petra in
+/// armor) must not override it, so it is looked up before the other bootable sets.
+pub const MENU_BOOT_SET: &str = "Minecraft101";
+
 pub struct Install {
     pub root: PathBuf,
     pub exe: PathBuf,
@@ -72,12 +78,21 @@ impl Install {
     }
 
     /// Archives in lookup order: as the engine's resource sets order them (highest priority
-    /// first, language packs excluded), or every archive by name if there are no set files.
+    /// first, language packs excluded, [`MENU_BOOT_SET`] ahead of the other episode sets), or
+    /// every archive by name if there are no set files.
     pub fn mount_order(&self) -> Result<Vec<PathBuf>, Error> {
         let dir = self.archives_dir();
-        let sets = resdesc::load(&dir, &self.cipher)?;
+        let mut sets = resdesc::load(&dir, &self.cipher)?;
         if sets.is_empty() {
             return self.archive_paths();
+        }
+        // Always-on sets keep their priority order; the menu's boot set leads the bootable ones.
+        // MCSM_BOOT_SET=<set> (empty: none) overrides it, for comparing lookups.
+        let boot_set = std::env::var("MCSM_BOOT_SET").unwrap_or_else(|_| MENU_BOOT_SET.to_owned());
+        if let Some(i) = sets.iter().position(|s| s.name.eq_ignore_ascii_case(&boot_set)) {
+            let boot = sets.remove(i);
+            let at = sets.iter().position(|s| s.enable_mode == "bootable").unwrap_or(sets.len());
+            sets.insert(at, boot);
         }
         Ok(resdesc::archive_order(&dir, &sets))
     }

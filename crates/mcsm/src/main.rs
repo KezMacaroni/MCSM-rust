@@ -66,6 +66,7 @@ fn main() -> AppExit {
     .add_plugins(raw::RawFilePlugin)
     .add_plugins(lit::LitPlugin)
     .add_plugins(grade::GradePlugin)
+    .add_systems(PostUpdate, stage::grow_skinned_bounds.after(bevy::camera::visibility::VisibilitySystems::CalculateBounds).before(bevy::camera::visibility::VisibilitySystems::CheckVisibility))
     .add_systems(Startup, (boot_error, settings::load, cursor::load, menu::build, audio::start_menu_music, audio::load_menu_sfx).chain())
     .add_systems(Update, (menu::follow_aspect, menu::episode_tick, menu::transition_tick, menu::prewarm, menu::rebuild, menu::sync_cameras, menu::input, menu::refresh, menu::apply_selection, menu::appearance, settings::apply, cursor::apply, chore::play, character::animate, stage::sync_lights, stage::apply_fov, debug_focus, fps_log, auto_screenshot).chain())
     .run()
