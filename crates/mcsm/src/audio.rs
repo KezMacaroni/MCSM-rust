@@ -33,6 +33,44 @@ pub fn bank_stream_ogg(bank: &[u8], stream: &str) -> Result<Vec<u8>, String> {
     Err(format!("stream {stream} not found"))
 }
 
+/// Episode voices are single-stream FSB5 MPEG banks despite the `.wav` extension.
+/// FSB aligns each MP3 frame to four bytes; remove that padding for Bevy's MP3 decoder.
+pub fn voice_stream(bank: &[u8], id: u32) -> Result<Vec<u8>, String> {
+    let u32_at = |at| bank.get(at..at + 4).map(|b| u32::from_le_bytes(b.try_into().unwrap()));
+    if bank.get(..4) != Some(b"FSB5") { return Err("voice is not FSB5".into()); }
+    if u32_at(24) != Some(11) { return bank_stream_ogg(bank, &id.to_string()); }
+    if u32_at(8) != Some(1) { return Err("multi-stream MPEG voice not supported".into()); }
+    let header: usize = match u32_at(4) { Some(0) => 64, Some(1) => 60, _ => return Err("unknown FSB version".into()) };
+    let start = header.checked_add(u32_at(12).ok_or("short FSB header")? as usize)
+        .and_then(|s| s.checked_add(u32_at(16)? as usize)).ok_or("invalid FSB sizes")?;
+    let end = start.checked_add(u32_at(20).ok_or("short FSB header")? as usize).ok_or("invalid FSB data length")?;
+    let bytes = bank.get(start..end).ok_or("truncated MPEG voice")?;
+    unpad_mp3(bytes)
+}
+
+fn unpad_mp3(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
+    let mut at = 0;
+    while at + 4 <= bytes.len() {
+        if bytes[at..].iter().all(|b| *b == 0) { break; }
+        let h = u32::from_be_bytes(bytes[at..at + 4].try_into().unwrap());
+        let version = (h >> 19) & 3;
+        let bitrate = ((h >> 12) & 15) as usize;
+        let rate = ((h >> 10) & 3) as usize;
+        if h >> 21 != 0x7ff || (h >> 17) & 3 != 1 || version == 1 || bitrate == 0 || bitrate == 15 || rate == 3 {
+            return Err(format!("invalid MPEG Layer III frame at {at}"));
+        }
+        let kbps = if version == 3 { [0,32,40,48,56,64,80,96,112,128,160,192,224,256,320,0][bitrate] }
+            else { [0,8,16,24,32,40,48,56,64,80,96,112,128,144,160,0][bitrate] };
+        let hz = [44100,48000,32000][rate] / if version == 3 { 1 } else if version == 2 { 2 } else { 4 };
+        let size = (if version == 3 { 144 } else { 72 }) * kbps * 1000 / hz + ((h >> 9) & 1) as usize;
+        out.extend_from_slice(bytes.get(at..at + size).ok_or("truncated MP3 frame")?);
+        at += (size + 3) & !3;
+    }
+    if out.is_empty() { return Err("empty MPEG voice".into()); }
+    Ok(out)
+}
+
 /// fsbex 0.3 marks every Ogg page after the headers as end-of-stream, so decoders stop after
 /// the first audio page and play silence. Keep the flag only on the last page and recompute
 /// each page's CRC.
@@ -89,6 +127,9 @@ fn music_volume(data: &GameData, props: &mut crate::data::Props) -> f32 {
         .unwrap_or(1.0)
 }
 
+#[derive(Component)]
+pub struct MenuMusic;
+
 pub fn start_menu_music(
     mut commands: Commands,
     data: Option<Res<GameData>>,
@@ -110,12 +151,34 @@ pub fn start_menu_music(
             let source = sources.add(AudioSource { bytes: ogg.into() });
             commands.spawn((
                 Name::new("menu music"),
+                MenuMusic,
                 crate::settings::MusicVolume(volume),
                 AudioPlayer(source),
                 PlaybackSettings::LOOP.with_volume(Volume::Linear(volume)),
             ));
         }
         Err(e) => error!("menu music: {e}"),
+    }
+}
+
+#[cfg(test)]
+mod voice_tests {
+    use super::*;
+    #[test]
+    fn removes_fmod_frame_padding() {
+        // MPEG1 Layer III, 48 kb/s, 44.1 kHz, padding bit set: 157 bytes.
+        let mut frame = vec![0; 160];
+        frame[..4].copy_from_slice(&[0xff, 0xfb, 0x32, 0xc0]);
+        let bytes = [frame.clone(), frame].concat();
+        let mp3 = unpad_mp3(&bytes).unwrap();
+        assert_eq!(mp3.len(), 314);
+        assert_eq!(&mp3[157..161], &[0xff, 0xfb, 0x32, 0xc0]);
+    }
+    #[test]
+    fn rejects_bad_or_truncated_frames() {
+        assert!(unpad_mp3(&[1, 2, 3, 4]).is_err());
+        assert!(unpad_mp3(&[0xff, 0xfb, 0x32, 0xc0]).is_err());
+        assert!(voice_stream(b"FSB5", 1).is_err());
     }
 }
 

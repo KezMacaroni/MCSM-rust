@@ -3,6 +3,7 @@
 
 pub mod anim;
 pub mod chore;
+pub mod dialog;
 pub mod font;
 pub mod mesh;
 pub mod props;

@@ -19,6 +19,7 @@ not affiliated with or endorsed by them.
 | Crate | License | Used for |
 |---|---|---|
 | [fsbex](https://github.com/astral4/fsbex) | MIT OR Apache-2.0 | Reading FMOD FSB5 streams from the user's `.bank` files as Ogg Vorbis |
+| [mlua](https://github.com/mlua-rs/mlua), bundled [Lua 5.2](https://www.lua.org/license.html) | MIT | Executing installed inline dialogue scripts with a limited engine API and instruction budget |
 | [rfd](https://github.com/PolyMeilex/rfd) | MIT | The "choose your game folder" dialog on first start |
 | [Bevy](https://bevyengine.org), [flate2](https://github.com/rust-lang/flate2-rs), [half](https://github.com/starkat99/half-rs), [thiserror](https://github.com/dtolnay/thiserror) | MIT OR Apache-2.0 | Engine, deflate, half floats, errors |
 
@@ -31,7 +32,7 @@ not affiliated with or endorsed by them.
 | [TelltaleLuaScriptingDocumentation](https://github.com/frostbone25/TelltaleLuaScriptingDocumentation) | frostbone25 | MIT | Engine Lua API surface (planned) |
 | [TelltaleInspector](https://github.com/LucasSaragosa/TelltaleInspector) | Lucas Saragosa | MIT | Telltale Tool library formats (planned) |
 | [TelltaleToolKit](https://github.com/iMrShadow/TelltaleToolKit) | iMrShadow | MIT | Skeleton entry member order (`crates/ttmeta/src/skeleton.rs`, our own code). The compressed skeleton key layout was read from the game's own decoder instead |
-| [Telltale Editor](https://github.com/LucasSaragosa/Telltale-Editor), [TelltaleToolLib](https://github.com/LucasSaragosa/TelltaleToolLib) | Lucas Saragosa | no license file: **reference only, nothing copied** | Format understanding: Animation and Chore member order (`crates/ttmeta/src/anim.rs`, `crates/ttmeta/src/chore.rs` are our own code; block-wrapping and byte layout verified against the user's files) |
+| [Telltale Editor](https://github.com/LucasSaragosa/Telltale-Editor), [TelltaleToolLib](https://github.com/LucasSaragosa/TelltaleToolLib) | Lucas Saragosa | no license file: **reference only, nothing copied** | Format understanding: Animation, Chore, dialogue node / child, visibility-rule and logic-group member order (`crates/ttmeta/src/anim.rs`, `crates/ttmeta/src/chore.rs`, `crates/ttmeta/src/dialog.rs` are our own code; block-wrapping and byte layout verified against the user's files) |
 
 ## Tools used during research (not part of this project)
 
@@ -47,5 +48,7 @@ key schedule (`0x005302a0`), the key and tables it uses, and the ECTT/ZCTT/NCTT 
 MetaStream container, PropertySet encoding (including the block-wrapping rules), Scene layout,
 the CRC-64 symbol scheme, resource-set priorities, the right-handed / camera-looks-down-+Z
 convention and the menu layout behaviour were worked out from the user's own files.
+The opening story research also identified dialogue language-resource cues and single-stream FSB5
+MPEG voice containers (four-byte-aligned MP3 frames). The voice depadding code is our own.
 Findings are written up as behaviour, never as decompiled code. The key and tables are read from the
 user's exe at runtime, not stored here.

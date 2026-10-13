@@ -5,13 +5,15 @@ m01_archives	milestone	ttarch	1	done	ECTT/ZCTT/NCTT + 3ATT/4ATT; Blowfish v7
 m02_bevy_source	milestone	mcsm	1	done	ttarch:// AssetReader + raw loader
 m03_lua_decrypt	milestone	ttarch	1	done	LEo scripts -> Lua 5.2 bytecode
 m04_resdesc	milestone	ttarch	2	done	archive priorities from _resdesc_50_*.lua
-m08_lua_vm	milestone	mcsm	2	todo	Lua 5.2 runtime + engine API surface
+m08_lua_vm	milestone	mcsm	2	partial	Lua 5.2 inline dialogue scripts as coroutines (Wait/Yield/RenderDelay), text-only load, bounded execution, checkpoint/logic table, CameraActivate, platform/input/player conditions; complete bootstrap/engine API not implemented
 m05_metastream	milestone	ttmeta	1	done	props/scene/texture/mesh/font/text; full-install sweep passes
 m06_textures	milestone	mcsm	2	done	BC1-5, BGRA8, ARGB4, A8, L8
 m07_meshes	milestone	mcsm	2	partial	static v18 meshes; skinning not yet
 m09_menu	milestone	mcsm	1	done	Milestone A main menu
-m10_dlg	milestone	ttmeta	1	todo	real Dlg parser (conditionals: Episodes label)
+m10_dlg	milestone	ttmeta	1	partial	121/121 .dlog index; notes/markers pass through; scoped logic; equality and Lua-expression conditions; text/wait-as-node/sequence/parallel nodes and negated/non-default logic still unsupported
 m11_chores	milestone	mcsm	2	todo	chore playback for menu show/select animations
 m12_characters	milestone	mcsm	2	todo	skeletons + animation for key-art characters
 m13_anim_chore	milestone	ttmeta	1	done	keyframed anm + chore parse; full-install sweep passes
-m14_chore_playback	milestone	mcsm	1	done	absolute/visibility/scale tracks, additive anm, nested chores
+m14_chore_playback	milestone	mcsm	1	done	absolute/visibility/scale/FOV tracks, additive anm, nested and inline embedded chores
+m15_story_opening	milestone	mcsm	1	done	End narration -> treehouse conversation/dragon-costume choices, all four response paths, male and female; FSB5 MPEG voices; centered subtitles without recording markup
+m16_story_actions	milestone	mcsm	1	partial	Agent/inventory logic assignments done (visibility, idles); next: free walking (Navigate_Enable, nav cameras), useables, struggle QTEs, Procedural_LookAt chores, remaining rule operators

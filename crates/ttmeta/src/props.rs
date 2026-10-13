@@ -103,6 +103,7 @@ fn read_value(r: &mut Reader, t: u64) -> Result<Option<Value>, Error> {
     let v = match t {
         BOOL => Value::Bool(r.bool()?),
         INT32 | INT | LONG | UINT32 | UINT | FLAGS | LIGHT_TYPE => Value::Int(r.i32()?),
+        t if t == crc64("LanguageResProxy") => Value::Int(r.u32()? as i32),
         FLOAT => Value::Float(r.f32()?),
         SYMBOL => Value::Symbol(r.symbol()?),
         STRING => Value::String(r.string()?),

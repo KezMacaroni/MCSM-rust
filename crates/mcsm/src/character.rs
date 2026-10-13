@@ -125,6 +125,29 @@ fn idle_animation(ctx: &mut crate::stage::Ctx, props: &ttmeta::PropertySet) -> O
     Some(Idle::Chore(crate::chore::ChorePlayer::new(ctx.data, chore, Arc::new(HashMap::new()), true)))
 }
 
+/// A new "Walk Animation - Idle" set while the game runs (a dialogue logic node): the
+/// animation or chore symbol it names, or neither to clear the idle.
+#[derive(Component)]
+pub struct SetIdle(pub Symbol, pub Symbol);
+
+/// Swap in idles requested by [`SetIdle`].
+pub fn apply_set_idle(mut commands: Commands, data: Option<Res<GameData>>, mut rigs: Query<(Entity, &mut Rig, &SetIdle)>) {
+    let Some(data) = data else { return };
+    for (e, mut rig, set) in &mut rigs {
+        commands.entity(e).remove::<(SetIdle, IdleOverride, HeldPose)>();
+        rig.idle = if set.0 != Symbol::NONE {
+            crate::chore::load_animation(&data, set.0).filter(|a| a.skeleton().is_some()).map(Idle::Anim)
+        } else if set.1 != Symbol::NONE {
+            crate::chore::chore_by_symbol(&data, set.1).map(|c| Idle::Chore(crate::chore::ChorePlayer::new(&data, c, Arc::new(HashMap::new()), true)))
+        } else {
+            None
+        };
+        if rig.idle.is_none() && (set.0 != Symbol::NONE || set.1 != Symbol::NONE) {
+            warn!("idle {:?} / {:?} did not load", data.name_of(set.0), data.name_of(set.1));
+        }
+    }
+}
+
 /// The first full-body idle animation named by the agent's parent props (its character prop).
 fn parent_idle(ctx: &mut crate::stage::Ctx, props: &ttmeta::PropertySet) -> Option<Arc<Animation>> {
     props.parents.iter().find_map(|&p| {

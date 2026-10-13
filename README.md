@@ -40,12 +40,13 @@ with C++").
 | Skeletons (`.skl`), skinned meshes, skeletal animation (compressed and uncompressed keys) | done: 314/314 skeletons; 23,037 skeletal animations decode |
 | Menu: key-art characters (townsfolk idles, chickens, chore-driven actions) | done |
 | Character select (first Play): six looks, live texture / gender swap, look carried to the episode diorama | done (choice kept for the session only) |
-| Episode select (Play): diorama per episode, sliding between episodes, title / status / arrows, per-episode poses, fog and sky colors | done (starting an episode is not implemented) |
+| Episode select (Play): diorama per episode, sliding between episodes, title / status / arrows, per-episode poses, fog and sky colors | done (Episode 1 starts the experimental story runtime; full episode gameplay is not implemented) |
 | Settings menus (Audio/Video, Gameplay, Graphics; toggles, sliders, Apply/Restore popup), saved to `%APPDATA%\mcsm-rs\settings.txt` | done (volumes, full screen, resolution, anti-aliasing and brightness take effect) |
 | Telltale lighting on unbaked surfaces (per lighting group, from the game's shaders) and scene FX (tone curve, vignette, fog) | done |
 | Fades between menu backgrounds, the game's cursor, background preloading of menu scenes | done |
 | Menu: held props (agents attached to bones), bloom, depth of field, brush post-effect, news feed, FMOD event logic | next |
-| Lua runtime + engine API, dialogue | planned |
+| Episode 1 story runtime | experimental: narrated opening, transition to the treehouse, authored camera / character timelines, voices / subtitles, every opening choice path up to free walking |
+| Lua runtime + engine API, dialogue | partial: all 121 dialogue files index; Lua 5.2 runs inline scripts as coroutines (Wait / Yield / RenderDelay), CameraActivate, logic and agent-property assignments (visibility, idles), equality and Lua-expression conditions. Not a complete game-script API |
 
 ## Running
 
@@ -60,6 +61,34 @@ copy mcsm.example.toml mcsm.toml   (then edit game_dir)
 ```
 
 The path may be the game folder or `MinecraftStoryMode.exe` itself.
+
+### Experimental Episode 1 story
+
+Choose **Play**, select a character look, then **Start Episode 1**. The runtime plays the
+Order of the Stone opening, transitions to the treehouse, and follows the opening conversation
+and dragon-costume sequence using the installed dialogue graphs and chore timelines.
+
+- **1 / 2 / 3 / 4**: choose a displayed dialogue response (number row).
+- **Escape / Backspace**: return to episode select.
+
+This is **not a complete playable episode**. Every response path (all four choices, male or
+female Jesse) plays through the opening and the treehouse conversation up to the point where the
+game hands control to the player; free walking, interactions and the struggle (button-mash)
+sequences are not implemented, so the story stops there with that reason on screen. Choice
+timers are not implemented (choices wait for input), choices/checkpoints are session-only,
+tutorial/choice notifications are logged rather than displayed, and music/event effects, some
+idles/facial animation (procedural look-at), lighting and appearance selection inside the episode
+remain incomplete. Unsupported nodes or engine functions stop with a message naming them instead
+of guessing.
+
+Developer checks: `MCSM_MENU_PAGE=episode1` opens the story directly;
+`MCSM_STORY_SPEED=5` accelerates its timelines (audio is **not** time-stretched);
+`MCSM_STORY_AUTO_CHOICE=1..4` explicitly chooses that response after each prompt finishes.
+Leave those last two variables unset for normal playback.
+
+The earlier free-camera treehouse preview is still available with
+`MCSM_MENU_PAGE=episode1` and `MCSM_STORY_PREVIEW=1`: WASD to fly, Q/E down/up,
+arrows to look, Left Shift to move faster. It has no collision.
 
 Developer CLI:
 

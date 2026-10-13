@@ -9,7 +9,8 @@ rust-version.workspace = true
 [dependencies]
 ttarch.workspace = true
 ttmeta.workspace = true
-bevy.workspace = true
+bevy = { workspace = true, features = ["mp3"] }
 fsbex = "0.3"
 rfd = "0.17"
 thiserror.workspace = true
+mlua = { version = "0.11", features = ["lua52", "vendored", "send"] }

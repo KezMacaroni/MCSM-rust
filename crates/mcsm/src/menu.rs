@@ -74,6 +74,8 @@ pub enum Page {
     EpisodeSelect,
     /// `Menu_CharacterSelect`: choose Jesse's look before the first episode menu.
     CharacterSelect,
+    /// Episode 1's experimental story runtime (or opt-in free-camera preview).
+    EpisodeOne,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -204,6 +206,7 @@ pub struct MenuState {
     /// Items whose value changed (their label / handle needs refreshing).
     changed: Vec<usize>,
     key_art_camera: Option<Entity>,
+    episode_camera: Option<Entity>,
     /// Episode shown on the episode-select page (1-based; 0 before the first visit).
     episode: u32,
     /// A slide to another episode in progress: (target episode, seconds left).
@@ -415,6 +418,17 @@ pub struct Diorama {
 }
 
 impl MenuState {
+    pub(crate) fn in_story(&self) -> bool { self.top() == Page::EpisodeOne }
+
+    /// Whether the look chosen on character select is a female Jesse (choices 1-3).
+    pub(crate) fn player_is_female(&self) -> bool {
+        self.player_choice.is_some_and(|c| c <= 3)
+    }
+
+    pub(crate) fn set_story_camera(&mut self, camera: Option<Entity>) {
+        self.episode_camera = camera;
+    }
+
     fn top(&self) -> Page {
         self.stack.last().copied().unwrap_or(Page::Main)
     }
@@ -460,7 +474,7 @@ pub struct SceneAssets<'w> {
 }
 
 impl SceneAssets<'_> {
-    fn ctx<'a, 'w, 's>(&'a mut self, commands: &'a mut Commands<'w, 's>, data: &'a GameData) -> Ctx<'a, 'w, 's> {
+    pub(crate) fn ctx<'a, 'w, 's>(&'a mut self, commands: &'a mut Commands<'w, 's>, data: &'a GameData) -> Ctx<'a, 'w, 's> {
         Ctx {
             commands,
             data,
@@ -713,6 +727,10 @@ pub fn build(
             "graphics" => &[Page::Settings, Page::Graphics],
             "confirm" => &[Page::Settings, Page::ConfirmSettings],
             "characters" => &[Page::CharacterSelect],
+            "episode1" => {
+                state.episode = 1;
+                &[Page::EpisodeSelect, Page::EpisodeOne]
+            },
             // MCSM_EPISODE=n: which episode it opens on.
             "episodes" => {
                 state.episode = std::env::var("MCSM_EPISODE").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
@@ -739,7 +757,7 @@ pub fn build(
         StatusLine,
         Text::new(""),
         TextFont { font_size: bevy::text::FontSize::Px(18.0), ..default() },
-        Node { position_type: PositionType::Absolute, bottom: px(12), left: px(16), ..default() },
+        Node { position_type: PositionType::Absolute, bottom: px(12), left: px(16), right: px(16), ..default() },
     ));
 }
 
@@ -832,6 +850,7 @@ fn page_entries(page: Page) -> (Vec<Entry>, bool) {
         Page::ConfirmSettings => (Vec::new(), false),
         Page::EpisodeSelect => (Vec::new(), true),
         Page::CharacterSelect => (Vec::new(), true),
+        Page::EpisodeOne => (Vec::new(), false),
     }
 }
 
@@ -1065,6 +1084,8 @@ pub fn rebuild(
     monitors: Query<&bevy::window::Monitor>,
     diorama: Option<Res<Diorama>>,
     character_select: Option<Res<CharacterSelect>>,
+    mut status: Query<&mut Text, With<StatusLine>>,
+    story: Option<Res<crate::story::Story>>,
 ) {
     let (Some(data), Some(menu), Some(settings)) = (data, menu, settings) else { return };
     if !state.rebuild {
@@ -1076,6 +1097,7 @@ pub fn rebuild(
         commands.entity(root).try_despawn();
     }
     state.popup_camera = None;
+    state.episode_camera = None;
     let top = state.top();
     let page = if top == Page::ConfirmSettings { Page::Settings } else { top };
     if let Some(title) = state.title {
@@ -1235,6 +1257,37 @@ pub fn rebuild(
         }
     }
 
+    if page == Page::EpisodeOne {
+        state.count = 0;
+        for mut t in &mut status {
+            t.0 = "Episode 1 preview (no story logic) | WASD: fly, Q/E: down/up, arrows: look, Shift: fast, Esc: back.".into();
+        }
+        if std::env::var_os("MCSM_STORY_PREVIEW").is_none() {
+            for mut t in &mut status { t.0 = "Loading Episode 1...".into(); }
+            if story.is_none() {
+                match crate::story::Story::new() {
+                    Ok(story) => ctx.commands.insert_resource(story),
+                    Err(e) => { error!("story runtime: {e}"); }
+                }
+            }
+        } else if let Some(scene) = load_scene(&data, "adv_forestTreehouse.scene") {
+            let spawned = stage::spawn_scene_with_camera(
+                &mut ctx, &scene, 6, 0, Shading::World, |_| false, Some("cam_nav_treeHouse"),
+            );
+            state.episode_camera = spawned.camera;
+            state.roots.extend(spawned.agents.values().copied());
+            if let Some(cam) = spawned.camera {
+                // The authored navigation camera starts outside the roof; scripts normally
+                // hide obstructing geometry. Use an interior inspection shot until then.
+                ctx.commands.entity(cam).remove::<ChildOf>().insert((
+                    EpisodePreviewCamera,
+                    Transform::from_xyz(0.5, 18.5, -3.5).looking_at(Vec3::new(0.5, 18.0, 2.0), Vec3::Y),
+                ));
+                state.roots.push(cam);
+            }
+            info!("Episode 1 treehouse loaded: {} agents", spawned.agents.len());
+        }
+    }
     if top == Page::ConfirmSettings {
         build_popup(&mut ctx, &menu, &mut state);
     }
@@ -1380,20 +1433,54 @@ pub fn sync_cameras(
     state: Res<MenuState>,
     diorama: Option<Res<Diorama>>,
     character_select: Option<Res<CharacterSelect>>,
-    mut cameras: Query<&mut Camera>,
+    mut cameras: Query<(&mut Camera, &mut RenderLayers)>,
 ) {
+    let in_episode = state.top() == Page::EpisodeOne;
+    if let Some((_, mut layers)) = state.camera.and_then(|e| cameras.get_mut(e).ok()) {
+        // Keep the UI/status camera, but do not draw its menu-scene meshes.
+        *layers = if in_episode { RenderLayers::layer(0) } else { RenderLayers::layer(MENU_LAYER) };
+    }
     let on_episodes = state.top() == Page::EpisodeSelect;
     let on_characters = state.top() == Page::CharacterSelect;
     for (cam, active) in [
-        (state.key_art_camera, !on_episodes && !on_characters),
+        (state.key_art_camera, !on_episodes && !on_characters && !in_episode),
+        (state.episode_camera, in_episode),
         (diorama.as_ref().and_then(|d| d.camera), on_episodes),
         (character_select.as_ref().and_then(|c| c.camera), on_characters),
     ] {
-        if let Some(mut c) = cam.and_then(|e| cameras.get_mut(e).ok()) {
+        if let Some((mut c, _)) = cam.and_then(|e| cameras.get_mut(e).ok()) {
             if c.is_active != active {
                 c.is_active = active;
             }
         }
+    }
+}
+
+#[derive(Component)]
+pub struct EpisodePreviewCamera;
+
+/// Temporary inspection controls until player navigation and story scripts are implemented.
+pub fn episode_preview_controls(
+    state: Res<MenuState>,
+    keys: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
+    mut cameras: Query<&mut Transform, With<EpisodePreviewCamera>>,
+    music: Query<&AudioSink, With<crate::audio::MenuMusic>>,
+) {
+    let active = state.top() == Page::EpisodeOne;
+    for sink in &music {
+        if active { sink.pause(); } else { sink.play(); }
+    }
+    if !active { return; }
+    let axis = |positive, negative| keys.pressed(positive) as u8 as f32 - keys.pressed(negative) as u8 as f32;
+    let dt = time.delta_secs().min(0.1);
+    for mut tf in &mut cameras {
+        tf.rotate_y(axis(KeyCode::ArrowLeft, KeyCode::ArrowRight) * dt);
+        tf.rotate_local_x(axis(KeyCode::ArrowUp, KeyCode::ArrowDown) * dt);
+        let movement = Vec3::new(axis(KeyCode::KeyD, KeyCode::KeyA), axis(KeyCode::KeyE, KeyCode::KeyQ), axis(KeyCode::KeyS, KeyCode::KeyW));
+        let speed = if keys.pressed(KeyCode::ShiftLeft) { 12.0 } else { 3.0 };
+        let rotation = tf.rotation;
+        tf.translation += rotation * movement.normalize_or_zero() * speed * dt;
     }
 }
 
@@ -1629,6 +1716,13 @@ pub fn input(
     mut exit: MessageWriter<AppExit>,
 ) {
     let (Some(data), Some(menu), Some(settings)) = (data, menu, settings.as_mut()) else { return };
+    if state.top() == Page::EpisodeOne {
+        if keys.just_pressed(KeyCode::Escape) || keys.just_pressed(KeyCode::Backspace) {
+            state.pop();
+            for mut t in &mut status { t.0.clear(); }
+        }
+        return;
+    }
     if state.count == 0 || state.rebuild || state.transition.is_some() {
         return;
     }
@@ -1820,8 +1914,12 @@ pub fn input(
                     }
                 }
                 Action::StartEpisode => {
-                    for mut t in &mut status {
-                        t.0 = format!("Episode {} can't be played yet.", state.episode);
+                    if state.episode == 1 && load_scene(&data, "adv_forestTreehouse.scene").is_some() {
+                        state.push(Page::EpisodeOne);
+                    } else {
+                        for mut t in &mut status {
+                            t.0 = format!("Episode {} is unavailable or not implemented yet.", state.episode);
+                        }
                     }
                 }
                 Action::Apply => {

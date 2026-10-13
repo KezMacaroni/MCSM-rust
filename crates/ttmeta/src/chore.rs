@@ -45,6 +45,8 @@ pub struct Resource {
     pub control: Animation,
     /// An animation stored inside the chore instead of in a separate `.anm`.
     pub embedded: Option<Animation>,
+    /// A nested timeline stored inline (common in dialogue exchanges).
+    pub embedded_chore: Option<Box<Chore>>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,7 +69,15 @@ const ANIMATION: u64 = crc64("Animation");
 impl Chore {
     pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
         let ms = MetaStream::parse(bytes)?;
-        let mut r = ms.reader();
+        Self::read(&mut ms.reader())
+    }
+
+    pub fn read(r: &mut Reader) -> Result<Self, Error> {
+        Self::read_depth(r, 0)
+    }
+
+    fn read_depth(r: &mut Reader, depth: usize) -> Result<Self, Error> {
+        if depth > 32 { return Err(Error::Format("nested chore depth exceeded".into())); }
         let name = r.block_string()?;
         let _flags = r.u32()?;
         let length = r.f32()?;
@@ -89,7 +99,7 @@ impl Chore {
 
         let mut resources = Vec::with_capacity(n_res);
         for _ in 0..n_res {
-            resources.push(read_resource(&mut r)?);
+            resources.push(read_resource(r, depth)?);
         }
         let mut agents = Vec::with_capacity(n_agents);
         for _ in 0..n_agents {
@@ -108,7 +118,7 @@ impl Chore {
     }
 }
 
-fn read_resource(r: &mut Reader) -> Result<Resource, Error> {
+fn read_resource(r: &mut Reader, depth: usize) -> Result<Resource, Error> {
     let _version = r.u32()?;
     let name = r.symbol()?;
     let length = r.f32()?;
@@ -133,15 +143,16 @@ fn read_resource(r: &mut Reader) -> Result<Resource, Error> {
     r.skip_block()?;
     r.skip_block()?;
     let _auto_act = r.u32()?;
-    let embedded = if b[1] {
+    let mut embedded = None;
+    let mut embedded_chore = None;
+    if b[1] {
         let t = r.u64()?;
         let _ = r.u64()?;
-        if t != ANIMATION {
-            return Err(Error::Unsupported(format!("embedded chore object of type {t:#x}")));
+        match t {
+            ANIMATION => embedded = Some(Animation::read(r)?),
+            t if t == crc64("Chore") => embedded_chore = Some(Box::new(Chore::read_depth(r, depth + 1)?)),
+            _ => return Err(Error::Unsupported(format!("embedded chore object of type {t:#x}"))),
         }
-        Some(Animation::read(r)?)
-    } else {
-        None
-    };
-    Ok(Resource { name, length, priority, flags, blocks, enabled: b[2], bools: b, control, embedded })
+    }
+    Ok(Resource { name, length, priority, flags, blocks, enabled: b[2], bools: b, control, embedded, embedded_chore })
 }

@@ -100,6 +100,11 @@ fn load_chore(data: &GameData, s: Symbol) -> Option<Arc<Chore>> {
         .clone()
 }
 
+/// A chore by symbol, parsed once.
+pub fn chore_by_symbol(data: &GameData, s: Symbol) -> Option<Arc<Chore>> {
+    load_chore(data, s)
+}
+
 /// A chore by file name, parsed once.
 pub fn chore_by_name(data: &GameData, name: &str) -> Option<Arc<Chore>> {
     load_chore(data, Symbol::of(name))
@@ -112,7 +117,9 @@ impl ChorePlayer {
         let mut nested = HashMap::new();
         for (i, res) in chore.resources.iter().enumerate() {
             let name = data.name_of(res.name).unwrap_or("").to_ascii_lowercase();
-            if name.ends_with(".anm") {
+            if let Some(c) = &res.embedded_chore {
+                nested.insert(i, Arc::new((**c).clone()));
+            } else if name.ends_with(".anm") {
                 if let Some(a) = load_animation(data, res.name) {
                     anims.insert(i, a);
                 }
@@ -153,6 +160,7 @@ struct Pose {
     /// "Light Color" / "Light Max Distance" keyed on a light agent.
     light_color: Option<[f32; 4]>,
     light_max: Option<f32>,
+    field_of_view: Option<f32>,
     uv_state: Option<f32>,
     uv_state_u: Option<f32>,
     skeletal: Vec<(Arc<Animation>, f32, f32, bool)>,
@@ -276,6 +284,9 @@ fn evaluate(
             if let Some(Track::Float(k)) = track(ctrl, "Light Max Distance") {
                 pose.light_max = sample_float(k, t).or(pose.light_max);
             }
+            if let Some(Track::Float(k)) = track(ctrl, "Field of View") {
+                pose.field_of_view = sample_float(k, t).or(pose.field_of_view);
+            }
             if let Some(v) = ctrl.values.iter().find(|v| UV_STATES.contains(&v.name)) {
                 if let Track::Float(k) = &v.track {
                     pose.uv_state = sample_float(k, t).or(pose.uv_state);
@@ -363,6 +374,7 @@ pub fn play(
     scene_agents: Query<&crate::stage::SceneAgent>,
     mut fogs: Query<&mut bevy::pbr::DistanceFog>,
     mut lights: Query<&mut crate::stage::LightAgent>,
+    mut cameras: Query<(&ChildOf, &mut crate::stage::HorizontalFov)>,
 ) {
     let Some(data) = data else { return };
     for (player_entity, mut player, one_shot) in &mut players {
@@ -405,6 +417,11 @@ pub fn play(
                             light.max = m;
                         }
                     }
+                }
+            }
+            if let Some(fov) = pose.field_of_view.filter(|f| f.is_finite() && *f > 0.0 && *f < 180.0) {
+                for (parent, mut angle) in &mut cameras {
+                    if parent.parent() == e { angle.0 = fov.to_radians(); }
                 }
             }
             let Ok((base, mut tf, mut vis, mats, skeletal)) = agents.get_mut(e) else { continue };
